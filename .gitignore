@@ -1,0 +1,16 @@
+# Rust
+/target/
+Cargo.lock
+
+# Node / Solidity
+contracts/node_modules/
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store

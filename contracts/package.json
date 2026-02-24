@@ -1,0 +1,15 @@
+{
+  "name": "@wrfcoin/defi-protocols-contracts",
+  "version": "0.1.0",
+  "description": "WRFCoin DeFi protocol Solidity contracts",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "clean": "hardhat clean"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^4.0.0",
+    "hardhat": "^2.19.0",
+    "@openzeppelin/contracts": "^5.0.0"
+  }
+}
