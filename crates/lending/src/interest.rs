@@ -85,3 +85,71 @@ impl Default for LinearInterestRate {
         Self::new(200, 400, 7500, 8000)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_values() {
+        let model = LinearInterestRate::default();
+        assert_eq!(model.base_rate_bps, 200);
+        assert_eq!(model.slope1_bps, 400);
+        assert_eq!(model.slope2_bps, 7500);
+        assert_eq!(model.optimal_utilization_bps, 8000);
+    }
+
+    #[test]
+    fn test_zero_utilization() {
+        let model = LinearInterestRate::default();
+        // At 0% utilization: rate = base = 200 bps (2%)
+        assert_eq!(model.calculate_borrow_rate(0), 200);
+    }
+
+    #[test]
+    fn test_at_optimal_utilization() {
+        let model = LinearInterestRate::default();
+        // At 80% (optimal): rate = base + slope1 = 200 + 400 = 600 bps (6%)
+        assert_eq!(model.calculate_borrow_rate(8000), 600);
+    }
+
+    #[test]
+    fn test_below_optimal() {
+        let model = LinearInterestRate::default();
+        // At 40% utilization: rate = 200 + (4000 * 400 / 8000) = 200 + 200 = 400 bps
+        assert_eq!(model.calculate_borrow_rate(4000), 400);
+    }
+
+    #[test]
+    fn test_above_optimal() {
+        let model = LinearInterestRate::default();
+        // At 90% utilization: excess = 1000, denominator = 2000
+        // rate = 200 + 400 + (1000 * 7500 / 2000) = 600 + 3750 = 4350 bps
+        assert_eq!(model.calculate_borrow_rate(9000), 4350);
+    }
+
+    #[test]
+    fn test_full_utilization() {
+        let model = LinearInterestRate::default();
+        // At 100%: excess = 2000, denominator = 2000
+        // rate = 200 + 400 + 7500 = 8100 bps (81%)
+        assert_eq!(model.calculate_borrow_rate(10_000), 8100);
+    }
+
+    #[test]
+    fn test_optimal_zero() {
+        let model = LinearInterestRate::new(100, 200, 300, 0);
+        // Everything above optimal
+        assert_eq!(model.calculate_borrow_rate(5000), 100 + 200 + 300);
+    }
+
+    #[test]
+    fn test_supply_rate() {
+        let model = LinearInterestRate::default();
+        // supply = borrow_rate * util / 10_000
+        let borrow_rate = model.calculate_borrow_rate(8000);
+        let supply_rate = model.calculate_supply_rate(8000);
+        // 600 * 8000 / 10_000 = 480
+        assert_eq!(supply_rate, (borrow_rate as u128 * 8000 / 10_000) as u64);
+    }
+}

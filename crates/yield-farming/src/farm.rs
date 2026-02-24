@@ -311,3 +311,111 @@ impl Default for FarmManager {
         Self::new(Amount::ZERO)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn addr(n: u8) -> Address {
+        let mut bytes = [0u8; 32];
+        bytes[0] = n;
+        Address::from_bytes(bytes)
+    }
+
+    fn ts(secs: u64) -> Timestamp {
+        Timestamp::new(secs)
+    }
+
+    #[test]
+    fn test_add_pool() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        let idx = fm.add_pool(AssetId::new("LP-A"), 100, ts(0));
+        assert_eq!(idx, 0);
+        assert_eq!(fm.pools.len(), 1);
+        assert_eq!(fm.total_alloc_point, 100);
+    }
+
+    #[test]
+    fn test_deposit_initial() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        let pending = fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+        assert_eq!(pending, Amount::ZERO); // No pending on first deposit
+        assert_eq!(fm.pools[0].total_staked, Amount::new(1000));
+    }
+
+    #[test]
+    fn test_reward_accrual() {
+        let mut fm = FarmManager::new(Amount::new(100)); // 100 tokens/sec
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        // After 10 seconds: 100 * 10 = 1000 tokens for the pool
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert_eq!(pending, Amount::new(1000));
+    }
+
+    #[test]
+    fn test_withdraw_harvests_rewards() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        // Withdraw after 10 seconds
+        let rewards = fm.withdraw(addr(1), 0, Amount::new(500), ts(10)).unwrap();
+        assert_eq!(rewards, Amount::new(1000)); // 100 * 10
+        assert_eq!(fm.pools[0].total_staked, Amount::new(500));
+    }
+
+    #[test]
+    fn test_withdraw_more_than_staked_fails() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+        let result = fm.withdraw(addr(1), 0, Amount::new(2000), ts(10));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_two_users_split_rewards() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+
+        // User 1 deposits at t=0
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+        // User 2 deposits at t=5
+        fm.deposit(addr(2), 0, Amount::new(1000), ts(5)).unwrap();
+
+        // At t=10: user 1 had sole access for 5 seconds (500 tokens), then split for 5 seconds
+        // User 1: 500 + 250 = 750, User 2: 250
+        let p1 = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        let p2 = fm.pending_rewards(&addr(2), 0, ts(10)).unwrap();
+        assert_eq!(p1, Amount::new(750));
+        assert_eq!(p2, Amount::new(250));
+    }
+
+    #[test]
+    fn test_multiple_pools_allocation() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP-A"), 75, ts(0));  // 75%
+        fm.add_pool(AssetId::new("LP-B"), 25, ts(0));  // 25%
+
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+        fm.deposit(addr(2), 1, Amount::new(1000), ts(0)).unwrap();
+
+        // After 10 seconds: pool 0 gets 100 * 10 * 75 / 100 = 750
+        // pool 1 gets 100 * 10 * 25 / 100 = 250
+        let p1 = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        let p2 = fm.pending_rewards(&addr(2), 1, ts(10)).unwrap();
+        assert_eq!(p1, Amount::new(750));
+        assert_eq!(p2, Amount::new(250));
+    }
+
+    #[test]
+    fn test_pending_rewards_no_stake() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        let pending = fm.pending_rewards(&addr(99), 0, ts(10)).unwrap();
+        assert_eq!(pending, Amount::ZERO);
+    }
+}

@@ -166,3 +166,73 @@ impl Default for CompoundingStrategy {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_should_compound_timing() {
+        let strategy = CompoundingStrategy::new(Amount::ZERO, 3600, 100);
+        // At t=0, last_compound = 0, so elapsed >= 3600 is false
+        assert!(!strategy.should_compound(Timestamp::new(100)));
+        assert!(strategy.should_compound(Timestamp::new(3600)));
+        assert!(strategy.should_compound(Timestamp::new(7200)));
+    }
+
+    #[test]
+    fn test_deduct_fee() {
+        let strategy = CompoundingStrategy::new(Amount::ZERO, 3600, 100); // 1%
+        let (net, fee) = strategy.deduct_fee(Amount::new(10_000)).unwrap();
+        assert_eq!(fee, Amount::new(100)); // 1%
+        assert_eq!(net, Amount::new(9_900));
+    }
+
+    #[test]
+    fn test_calculate_reinvestment_below_threshold() {
+        let strategy = CompoundingStrategy::new(Amount::new(1000), 3600, 100);
+        let result = strategy
+            .calculate_reinvestment(Amount::new(500), Amount::new(10_000), Timestamp::new(3600))
+            .unwrap();
+        assert_eq!(result, Amount::ZERO); // Below threshold
+    }
+
+    #[test]
+    fn test_calculate_reinvestment_not_time_yet() {
+        let strategy = CompoundingStrategy::new(Amount::new(100), 3600, 100);
+        let result = strategy
+            .calculate_reinvestment(Amount::new(1000), Amount::new(10_000), Timestamp::new(100))
+            .unwrap();
+        assert_eq!(result, Amount::ZERO); // Not enough time elapsed
+    }
+
+    #[test]
+    fn test_calculate_reinvestment_success() {
+        let strategy = CompoundingStrategy::new(Amount::new(100), 3600, 100);
+        let result = strategy
+            .calculate_reinvestment(Amount::new(10_000), Amount::new(100_000), Timestamp::new(3600))
+            .unwrap();
+        // net = 10_000 - 1% fee = 9_900
+        assert_eq!(result, Amount::new(9_900));
+    }
+
+    #[test]
+    fn test_projected_apy_basic() {
+        let strategy = CompoundingStrategy::default();
+        // 100 tokens/sec, 1M staked, price 1:1 for both
+        let apy = strategy
+            .projected_apy_bps(Amount::new(100), Amount::new(1_000_000), 1, 1, 1, 1)
+            .unwrap();
+        // APR = 100 * 31_536_000 / 1_000_000 * 10_000 = 31_536_000_000 ... very high
+        assert!(apy > 0);
+    }
+
+    #[test]
+    fn test_projected_apy_zero_staked() {
+        let strategy = CompoundingStrategy::default();
+        let apy = strategy
+            .projected_apy_bps(Amount::new(100), Amount::ZERO, 1, 1, 1, 1)
+            .unwrap();
+        assert_eq!(apy, 0);
+    }
+}

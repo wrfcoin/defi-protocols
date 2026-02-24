@@ -127,3 +127,85 @@ impl Default for RewardCalculator {
         Self::new(Amount::ZERO)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vesting_before_start() {
+        let sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(100), 1000);
+        assert_eq!(sched.vested_at(Timestamp::new(50)), Amount::ZERO);
+    }
+
+    #[test]
+    fn test_vesting_at_start() {
+        let sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(100), 1000);
+        assert_eq!(sched.vested_at(Timestamp::new(100)), Amount::ZERO);
+    }
+
+    #[test]
+    fn test_vesting_halfway() {
+        let sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(100), 1000);
+        assert_eq!(sched.vested_at(Timestamp::new(600)), Amount::new(500));
+    }
+
+    #[test]
+    fn test_vesting_complete() {
+        let sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(100), 1000);
+        assert_eq!(sched.vested_at(Timestamp::new(1200)), Amount::new(1000));
+    }
+
+    #[test]
+    fn test_vesting_zero_duration() {
+        let sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(100), 0);
+        // Zero duration means instant vesting
+        assert_eq!(sched.vested_at(Timestamp::new(101)), Amount::new(1000));
+    }
+
+    #[test]
+    fn test_claimable() {
+        let sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(0), 1000);
+        assert_eq!(sched.claimable_at(Timestamp::new(500)), Amount::new(500));
+    }
+
+    #[test]
+    fn test_claim() {
+        let mut sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(0), 1000);
+        let claimed = sched.claim(Timestamp::new(500)).unwrap();
+        assert_eq!(claimed, Amount::new(500));
+        assert_eq!(sched.claimed, Amount::new(500));
+        // Can't claim again at same time
+        assert!(sched.claim(Timestamp::new(500)).is_err());
+    }
+
+    #[test]
+    fn test_claim_progressive() {
+        let mut sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(0), 1000);
+        sched.claim(Timestamp::new(500)).unwrap(); // 500
+        let second = sched.claim(Timestamp::new(800)).unwrap(); // 300 more
+        assert_eq!(second, Amount::new(300));
+        assert_eq!(sched.claimed, Amount::new(800));
+    }
+
+    #[test]
+    fn test_is_complete() {
+        let mut sched = VestingSchedule::new(Amount::new(1000), Timestamp::new(0), 1000);
+        assert!(!sched.is_complete());
+        sched.claim(Timestamp::new(1100)).unwrap();
+        assert!(sched.is_complete());
+    }
+
+    #[test]
+    fn test_reward_calculator_pending() {
+        let calc = RewardCalculator::new(Amount::new(100));
+        let precision = 1_000_000_000_000u128;
+        // User has 500 staked, acc_reward = 2 * precision, debt = 500 * precision
+        let acc = 2 * precision;
+        let debt = 500 * precision / precision; // simplified
+        let pending = calc.calculate_pending_reward(Amount::new(500), acc, debt, precision);
+        // accumulated = 500 * 2 * precision / precision = 1000
+        // pending = 1000 - debt
+        assert_eq!(pending, Amount::new(1000 - debt));
+    }
+}
