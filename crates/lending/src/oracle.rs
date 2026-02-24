@@ -51,3 +51,43 @@ impl Default for SimplePriceOracle {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_set_and_get_price() {
+        let mut oracle = SimplePriceOracle::new();
+        let wrf = AssetId::new("WRF");
+        oracle.set_price(wrf.clone(), Price::new(2, 1));
+        let price = oracle.get_price(&wrf).unwrap();
+        assert_eq!(price, Price::new(2, 1));
+    }
+
+    #[test]
+    fn test_missing_price() {
+        let oracle = SimplePriceOracle::new();
+        let result = oracle.get_price(&AssetId::new("UNKNOWN"));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_price() {
+        let mut oracle = SimplePriceOracle::new();
+        let wrf = AssetId::new("WRF");
+        oracle.set_price(wrf.clone(), Price::new(1, 1));
+        assert!(oracle.has_price(&wrf));
+        oracle.remove_price(&wrf);
+        assert!(!oracle.has_price(&wrf));
+    }
+
+    #[test]
+    fn test_get_prices_batch() {
+        let mut oracle = SimplePriceOracle::new();
+        oracle.set_price(AssetId::new("A"), Price::new(1, 1));
+        oracle.set_price(AssetId::new("B"), Price::new(2, 1));
+        let prices = oracle.get_prices(&[AssetId::new("A"), AssetId::new("B")]).unwrap();
+        assert_eq!(prices.len(), 2);
+    }
+}

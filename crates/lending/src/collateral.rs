@@ -184,3 +184,105 @@ impl Default for CollateralManager {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::oracle::SimplePriceOracle;
+    use wrfcoin_defi_common::types::Price;
+
+    fn addr(n: u8) -> Address {
+        let mut bytes = [0u8; 32];
+        bytes[0] = n;
+        Address::from_bytes(bytes)
+    }
+
+    fn asset(name: &str) -> AssetId {
+        AssetId::new(name)
+    }
+
+    #[test]
+    fn test_add_collateral() {
+        let mut cm = CollateralManager::new();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
+        let positions = &cm.positions[&addr(1)];
+        assert_eq!(positions.len(), 1);
+        assert_eq!(positions[0].amount, Amount::new(1000));
+    }
+
+    #[test]
+    fn test_add_collateral_same_asset_merges() {
+        let mut cm = CollateralManager::new();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(500), 7500).unwrap();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(300), 7500).unwrap();
+        let positions = &cm.positions[&addr(1)];
+        assert_eq!(positions.len(), 1);
+        assert_eq!(positions[0].amount, Amount::new(800));
+    }
+
+    #[test]
+    fn test_add_collateral_zero_fails() {
+        let mut cm = CollateralManager::new();
+        let result = cm.add_collateral(addr(1), asset("ETH"), Amount::ZERO, 7500);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_collateral() {
+        let mut cm = CollateralManager::new();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
+        cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(400)).unwrap();
+        assert_eq!(cm.positions[&addr(1)][0].amount, Amount::new(600));
+    }
+
+    #[test]
+    fn test_remove_collateral_exceeds_fails() {
+        let mut cm = CollateralManager::new();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), 7500).unwrap();
+        let result = cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(200));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_remove_collateral_cleans_zero() {
+        let mut cm = CollateralManager::new();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), 7500).unwrap();
+        cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(100)).unwrap();
+        assert!(cm.positions[&addr(1)].is_empty());
+    }
+
+    #[test]
+    fn test_health_factor_no_debt() {
+        let mut cm = CollateralManager::new();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
+        let mut oracle = SimplePriceOracle::new();
+        oracle.set_price(asset("ETH"), Price::from_integer(1));
+        assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn test_health_factor_no_positions() {
+        let cm = CollateralManager::new();
+        let oracle = SimplePriceOracle::new();
+        assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), u64::MAX);
+    }
+
+    #[test]
+    fn test_health_factor_with_debt() {
+        let mut cm = CollateralManager::new();
+        // Collateral: 1000 ETH at price 2, LTV 75%
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
+        // Debt: 500 USDC at price 1
+        cm.debts.insert((addr(1), asset("USDC")), Amount::new(500));
+
+        let mut oracle = SimplePriceOracle::new();
+        oracle.set_price(asset("ETH"), Price::from_integer(2));
+        oracle.set_price(asset("USDC"), Price::from_integer(1));
+
+        let hf = cm.get_health_factor(&addr(1), &oracle).unwrap();
+        // weighted_collateral = 1000 * 2 * 7500 = 15_000_000
+        // debt = 500 * 1 = 500
+        // hf = 15_000_000 / 500 = 30_000
+        assert_eq!(hf, 30_000);
+    }
+}

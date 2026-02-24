@@ -180,3 +180,91 @@ impl Default for Router {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_pool_with_liquidity(id: u64, a: &str, b: &str, reserve: u128) -> LiquidityPool {
+        let mut pool = LiquidityPool::new(PoolId::new(id), AssetId::new(a), AssetId::new(b), 30);
+        pool.reserve_a = Amount::new(reserve);
+        pool.reserve_b = Amount::new(reserve);
+        pool.total_lp_supply = Amount::new(reserve);
+        pool
+    }
+
+    #[test]
+    fn test_find_direct_route() {
+        let mut router = Router::new();
+        router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
+
+        let route = router.find_route(&AssetId::new("A"), &AssetId::new("B"), 3).unwrap();
+        assert_eq!(route.len(), 1);
+        assert_eq!(route[0].pool_id, PoolId::new(1));
+        assert!(route[0].is_a_to_b);
+    }
+
+    #[test]
+    fn test_find_reverse_route() {
+        let mut router = Router::new();
+        router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
+
+        let route = router.find_route(&AssetId::new("B"), &AssetId::new("A"), 3).unwrap();
+        assert_eq!(route.len(), 1);
+        assert!(!route[0].is_a_to_b);
+    }
+
+    #[test]
+    fn test_find_multi_hop_route() {
+        let mut router = Router::new();
+        router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
+        router.add_pool(make_pool_with_liquidity(2, "B", "C", 10_000));
+
+        let route = router.find_route(&AssetId::new("A"), &AssetId::new("C"), 3).unwrap();
+        assert_eq!(route.len(), 2);
+    }
+
+    #[test]
+    fn test_no_route() {
+        let mut router = Router::new();
+        router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
+
+        let route = router.find_route(&AssetId::new("A"), &AssetId::new("Z"), 3);
+        assert!(route.is_none());
+    }
+
+    #[test]
+    fn test_same_asset_route() {
+        let router = Router::new();
+        let route = router.find_route(&AssetId::new("A"), &AssetId::new("A"), 3).unwrap();
+        assert!(route.is_empty());
+    }
+
+    #[test]
+    fn test_execute_multi_hop() {
+        let mut router = Router::new();
+        router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
+        router.add_pool(make_pool_with_liquidity(2, "B", "C", 10_000));
+
+        let route = router.find_route(&AssetId::new("A"), &AssetId::new("C"), 3).unwrap();
+        let out = router.execute_multi_hop(&route, Amount::new(100), Amount::ZERO).unwrap();
+        assert!(out.0 > 0);
+    }
+
+    #[test]
+    fn test_execute_empty_route_fails() {
+        let mut router = Router::new();
+        let result = router.execute_multi_hop(&[], Amount::new(100), Amount::ZERO);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_expected_output() {
+        let mut router = Router::new();
+        router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
+
+        let route = router.find_route(&AssetId::new("A"), &AssetId::new("B"), 1).unwrap();
+        let expected = router.get_expected_output(&route, Amount::new(100)).unwrap();
+        assert!(expected.0 > 0);
+    }
+}

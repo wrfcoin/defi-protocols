@@ -180,3 +180,104 @@ impl Default for SwapEngine {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wrfcoin_defi_common::types::{AssetId, PoolId};
+
+    fn make_pool(reserve_a: u128, reserve_b: u128) -> LiquidityPool {
+        let mut pool = LiquidityPool::new(PoolId::new(1), AssetId::new("A"), AssetId::new("B"), 30);
+        pool.reserve_a = Amount::new(reserve_a);
+        pool.reserve_b = Amount::new(reserve_b);
+        pool.total_lp_supply = Amount::new(1000); // arbitrary
+        pool
+    }
+
+    #[test]
+    fn test_get_amount_out_basic() {
+        let engine = SwapEngine::new();
+        // Pool: 1000 A, 1000 B, 0.3% fee
+        // Swap 100 A -> B
+        // after_fee = 100 * 9970 = 997_000
+        // numerator = 997_000 * 1000 = 997_000_000
+        // denominator = 1000 * 10_000 + 997_000 = 10_997_000
+        // out = 997_000_000 / 10_997_000 = 90
+        let out = engine.get_amount_out(
+            Amount::new(100), Amount::new(1000), Amount::new(1000), 30
+        ).unwrap();
+        assert_eq!(out, Amount::new(90));
+    }
+
+    #[test]
+    fn test_get_amount_out_zero_input_fails() {
+        let engine = SwapEngine::new();
+        let result = engine.get_amount_out(Amount::ZERO, Amount::new(1000), Amount::new(1000), 30);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_amount_out_empty_reserves_fails() {
+        let engine = SwapEngine::new();
+        let result = engine.get_amount_out(Amount::new(100), Amount::ZERO, Amount::new(1000), 30);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_amount_in_basic() {
+        let engine = SwapEngine::new();
+        // Want 90 B from pool with 1000 A, 1000 B
+        let amount_in = engine.get_amount_in(
+            Amount::new(90), Amount::new(1000), Amount::new(1000), 30
+        ).unwrap();
+        // Should need ~100 A (plus rounding up)
+        assert!(amount_in.0 >= 99 && amount_in.0 <= 101);
+    }
+
+    #[test]
+    fn test_get_amount_in_exceeds_reserves_fails() {
+        let engine = SwapEngine::new();
+        let result = engine.get_amount_in(Amount::new(1000), Amount::new(100), Amount::new(500), 30);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_execute_swap_a_to_b() {
+        let engine = SwapEngine::new();
+        let mut pool = make_pool(1000, 1000);
+        let out = engine.execute_swap(&mut pool, Amount::new(100), true, Amount::ZERO).unwrap();
+        assert!(out.0 > 0);
+        assert_eq!(pool.reserve_a, Amount::new(1100));
+        assert_eq!(pool.reserve_b, Amount::new(1000 - out.0));
+    }
+
+    #[test]
+    fn test_execute_swap_b_to_a() {
+        let engine = SwapEngine::new();
+        let mut pool = make_pool(1000, 1000);
+        let out = engine.execute_swap(&mut pool, Amount::new(100), false, Amount::ZERO).unwrap();
+        assert!(out.0 > 0);
+        assert_eq!(pool.reserve_b, Amount::new(1100));
+        assert_eq!(pool.reserve_a, Amount::new(1000 - out.0));
+    }
+
+    #[test]
+    fn test_execute_swap_slippage_protection() {
+        let engine = SwapEngine::new();
+        let mut pool = make_pool(1000, 1000);
+        // Set min_amount_out higher than what we'd actually get
+        let result = engine.execute_swap(&mut pool, Amount::new(100), true, Amount::new(999));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_swap_preserves_invariant() {
+        let engine = SwapEngine::new();
+        let mut pool = make_pool(10_000, 10_000);
+        let k_before = pool.invariant().unwrap();
+        engine.execute_swap(&mut pool, Amount::new(500), true, Amount::ZERO).unwrap();
+        let k_after = pool.invariant().unwrap();
+        // k should increase (fees are kept in the pool)
+        assert!(k_after >= k_before);
+    }
+}

@@ -212,3 +212,155 @@ impl fmt::Display for Timestamp {
         write!(f, "t={}", self.0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_amount_zero() {
+        assert!(Amount::ZERO.is_zero());
+        assert!(Amount::new(0).is_zero());
+        assert!(!Amount::new(1).is_zero());
+    }
+
+    #[test]
+    fn test_amount_checked_add() {
+        let a = Amount::new(100);
+        let b = Amount::new(200);
+        assert_eq!(a.checked_add(b), Some(Amount::new(300)));
+    }
+
+    #[test]
+    fn test_amount_checked_add_overflow() {
+        let a = Amount::new(u128::MAX);
+        let b = Amount::new(1);
+        assert_eq!(a.checked_add(b), None);
+    }
+
+    #[test]
+    fn test_amount_checked_sub() {
+        let a = Amount::new(300);
+        let b = Amount::new(100);
+        assert_eq!(a.checked_sub(b), Some(Amount::new(200)));
+    }
+
+    #[test]
+    fn test_amount_checked_sub_underflow() {
+        let a = Amount::new(100);
+        let b = Amount::new(200);
+        assert_eq!(a.checked_sub(b), None);
+    }
+
+    #[test]
+    fn test_amount_checked_mul() {
+        assert_eq!(Amount::new(100).checked_mul(5), Some(Amount::new(500)));
+    }
+
+    #[test]
+    fn test_amount_checked_div() {
+        assert_eq!(Amount::new(100).checked_div(5), Some(Amount::new(20)));
+        assert_eq!(Amount::new(100).checked_div(0), None);
+    }
+
+    #[test]
+    fn test_amount_mul_fraction() {
+        // 1000 * 30 / 10000 = 3
+        assert_eq!(Amount::new(1000).mul_fraction(30, 10000), Some(Amount::new(3)));
+        // denominator zero
+        assert_eq!(Amount::new(1000).mul_fraction(1, 0), None);
+    }
+
+    #[test]
+    fn test_amount_ordering() {
+        assert!(Amount::new(100) < Amount::new(200));
+        assert!(Amount::new(200) > Amount::new(100));
+        assert_eq!(Amount::new(100), Amount::new(100));
+    }
+
+    #[test]
+    fn test_amount_add_sub_ops() {
+        let a = Amount::new(10);
+        let b = Amount::new(5);
+        assert_eq!(a + b, Amount::new(15));
+        assert_eq!(a - b, Amount::new(5));
+    }
+
+    #[test]
+    fn test_price_new() {
+        let p = Price::new(3, 1);
+        assert_eq!(p.numerator, 3);
+        assert_eq!(p.denominator, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "denominator must be non-zero")]
+    fn test_price_zero_denominator() {
+        Price::new(1, 0);
+    }
+
+    #[test]
+    fn test_price_from_integer() {
+        let p = Price::from_integer(5);
+        assert_eq!(p.apply(Amount::new(100)), Some(Amount::new(500)));
+    }
+
+    #[test]
+    fn test_price_apply() {
+        // price = 3/2, apply to 100 = 100 * 3 / 2 = 150
+        let p = Price::new(3, 2);
+        assert_eq!(p.apply(Amount::new(100)), Some(Amount::new(150)));
+    }
+
+    #[test]
+    fn test_price_inverse() {
+        let p = Price::new(3, 2);
+        let inv = p.inverse().unwrap();
+        assert_eq!(inv.numerator, 2);
+        assert_eq!(inv.denominator, 3);
+    }
+
+    #[test]
+    fn test_price_inverse_zero() {
+        let p = Price { numerator: 0, denominator: 1 };
+        assert!(p.inverse().is_none());
+    }
+
+    #[test]
+    fn test_address_zero() {
+        let addr = Address::zero();
+        assert_eq!(addr.0, [0u8; 32]);
+    }
+
+    #[test]
+    fn test_address_display() {
+        let mut bytes = [0u8; 32];
+        bytes[0] = 0xAB;
+        bytes[31] = 0xCD;
+        let addr = Address::from_bytes(bytes);
+        let display = format!("{}", addr);
+        assert!(display.starts_with("0x"));
+        assert!(display.contains("..."));
+    }
+
+    #[test]
+    fn test_asset_id() {
+        let id = AssetId::new("WRF");
+        assert_eq!(id.as_str(), "WRF");
+        assert_eq!(format!("{}", id), "WRF");
+    }
+
+    #[test]
+    fn test_pool_id_display() {
+        let pid = PoolId::new(42);
+        assert_eq!(format!("{}", pid), "pool#42");
+    }
+
+    #[test]
+    fn test_timestamp_elapsed_since() {
+        let t1 = Timestamp::new(100);
+        let t2 = Timestamp::new(150);
+        assert_eq!(t2.elapsed_since(t1), 50);
+        assert_eq!(t1.elapsed_since(t2), 0); // saturating
+    }
+}

@@ -132,3 +132,61 @@ impl Default for FeeManager {
         Self::new(1667)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fee_tier_bps() {
+        assert_eq!(FeeTier::OneBasicPoint.as_bps(), 1);
+        assert_eq!(FeeTier::FiveBasicPoints.as_bps(), 5);
+        assert_eq!(FeeTier::ThirtyBasicPoints.as_bps(), 30);
+        assert_eq!(FeeTier::OnePercent.as_bps(), 100);
+    }
+
+    #[test]
+    fn test_default_fee_rate() {
+        let fm = FeeManager::default();
+        let pid = PoolId::new(99);
+        // Unregistered pool gets default 30 bps
+        assert_eq!(fm.get_fee_rate_bps(&pid), 30);
+    }
+
+    #[test]
+    fn test_set_fee_tier() {
+        let mut fm = FeeManager::default();
+        let pid = PoolId::new(1);
+        fm.set_fee_tier(pid, FeeTier::OnePercent);
+        assert_eq!(fm.get_fee_rate_bps(&pid), 100);
+    }
+
+    #[test]
+    fn test_calculate_fee() {
+        let fm = FeeManager::default(); // protocol share = 1667 bps (16.67%)
+        let pid = PoolId::new(1);
+        // 30 bps default fee, 1_000_000 input
+        let dist = fm.calculate_fee(&pid, Amount::new(1_000_000)).unwrap();
+        // total = 1_000_000 * 30 / 10_000 = 3_000
+        // protocol = 3_000 * 1667 / 10_000 = 500
+        // lp = 3_000 - 500 = 2_500
+        assert_eq!(dist.protocol_fee, Amount::new(500));
+        assert_eq!(dist.lp_fee, Amount::new(2500));
+    }
+
+    #[test]
+    fn test_distribute_and_withdraw_fees() {
+        let mut fm = FeeManager::default();
+        let pid = PoolId::new(1);
+        let dist = FeeDistribution {
+            lp_fee: Amount::new(100),
+            protocol_fee: Amount::new(50),
+        };
+        fm.distribute_fees(&pid, &dist).unwrap();
+        fm.distribute_fees(&pid, &dist).unwrap();
+        let withdrawn = fm.withdraw_protocol_fees(&pid);
+        assert_eq!(withdrawn, Amount::new(100));
+        // After withdrawal, should be zero
+        assert_eq!(fm.withdraw_protocol_fees(&pid), Amount::ZERO);
+    }
+}
