@@ -1,0 +1,44 @@
+version = 1
+updated_at = "2026-03-04"
+
+[[guardrail]]
+id = "privacy.financial_minimization"
+title = "Financial privacy must remain default"
+required = true
+applies_to = ["merge", "release"]
+description = "Features must not weaken privacy-by-default behavior or add broad transparent leakage paths."
+
+[[guardrail]]
+id = "privacy.contributor_protection"
+title = "Contributor metadata must remain minimally disclosed"
+required = true
+applies_to = ["merge", "release"]
+description = "Features must avoid unnecessary contributor deanonymization and must keep disclosure scope explicit."
+
+[[guardrail]]
+id = "environment.utility_linkage"
+title = "Economic rewards must map to environmental utility"
+required = true
+applies_to = ["merge", "release"]
+description = "Features must define measurable environmental utility linkage for reward and incentive flows."
+
+[[guardrail]]
+id = "governance.human_legibility"
+title = "Rules must stay human-readable"
+required = true
+applies_to = ["merge", "release"]
+description = "Proposal rationale, risks, and decision boundaries must be understandable to non-specialist reviewers."
+
+[[guardrail]]
+id = "governance.equal_liability"
+title = "Equal-liability outcomes across actor classes"
+required = true
+applies_to = ["merge", "release"]
+description = "No actor class (human, AI agent, robot) may receive privileged or softer consequences for equivalent misconduct."
+
+[[guardrail]]
+id = "security.abuse_resilience"
+title = "Abuse-resilience controls must be explicit"
+required = true
+applies_to = ["merge", "release"]
+description = "Features must document anti-abuse controls and include a rollback path if abuse or drift appears in production."
