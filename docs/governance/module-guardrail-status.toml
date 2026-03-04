@@ -1,0 +1,33 @@
+version = 1
+updated_at = "2026-03-04"
+
+# Automatic deprecation gate input. Any module with non-empty failing_guardrails
+# must be marked deprecated and remains release-blocking until remediation clears.
+
+[[module]]
+id = "amm"
+status = "active"
+failing_guardrails = []
+remediation_issue = ""
+remediation_notes = ""
+
+[[module]]
+id = "lending"
+status = "active"
+failing_guardrails = []
+remediation_issue = ""
+remediation_notes = ""
+
+[[module]]
+id = "yield-farming"
+status = "active"
+failing_guardrails = []
+remediation_issue = ""
+remediation_notes = ""
+
+[[module]]
+id = "defi-common"
+status = "active"
+failing_guardrails = []
+remediation_issue = ""
+remediation_notes = ""
