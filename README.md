@@ -54,6 +54,19 @@ Guardrail sources:
 - `docs/governance/mission-guardrail-status.md`
 - `docs/proposals/defi-feature-proposal-template.md`
 
+### Privacy Risk Simulation
+
+```bash
+python3 -B scripts/score_metadata_leakage_risk.py
+```
+
+### Privacy Design Docs (Issue #8)
+
+- `docs/privacy/2026-03-04-defi-phase2-privacy-reward-flow.md`
+- `docs/privacy/2026-03-04-defi-phase2-data-minimization-requirements.md`
+- `docs/privacy/2026-03-04-defi-phase2-threat-model.md`
+- `docs/simulations/2026-03-04-metadata-leakage-risk-simulation.md`
+
 ### Solidity
 
 ```bash
