@@ -1,5 +1,5 @@
 use crate::error::DefiResult;
-use crate::types::{Address, Amount, AssetId, PoolId, Price, Timestamp};
+use crate::types::{Address, Amount, AssetId, PoolId, Price, Timestamp, UtilitySignalSnapshot};
 
 /// Core trait for lending protocol implementations.
 pub trait LendingProtocol {
@@ -127,4 +127,14 @@ pub trait PriceOracle {
             })
             .collect()
     }
+}
+
+/// Source of verified utility telemetry for reward weighting hooks.
+pub trait UtilitySignalSource {
+    /// Return the latest verified utility signal snapshot for a pool.
+    fn utility_signal_for_pool(
+        &self,
+        pool_id: PoolId,
+        timestamp: Timestamp,
+    ) -> DefiResult<UtilitySignalSnapshot>;
 }
