@@ -1,7 +1,10 @@
+use crate::utility_hooks::UtilityRewardHook;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wrfcoin_defi_common::error::{DefiError, DefiResult};
-use wrfcoin_defi_common::types::{Address, Amount, AssetId, PoolId, Timestamp};
+use wrfcoin_defi_common::types::{
+    Address, Amount, AssetId, PoolId, Timestamp, UtilitySignalSnapshot,
+};
 
 /// Precision multiplier for accumulated reward calculations to avoid rounding losses.
 const ACC_REWARD_PRECISION: u128 = 1_000_000_000_000;
@@ -53,6 +56,10 @@ pub struct FarmManager {
     pub reward_per_second: Amount,
     /// Sum of all allocation points across pools.
     pub total_alloc_point: u64,
+    /// Utility-linked reward hook configuration and logic.
+    pub utility_reward_hook: UtilityRewardHook,
+    /// Utility signal snapshot per pool index.
+    pub pool_utility_signals: HashMap<usize, UtilitySignalSnapshot>,
 }
 
 impl FarmManager {
@@ -62,16 +69,13 @@ impl FarmManager {
             user_info: HashMap::new(),
             reward_per_second,
             total_alloc_point: 0,
+            utility_reward_hook: UtilityRewardHook::default(),
+            pool_utility_signals: HashMap::new(),
         }
     }
 
     /// Add a new farming pool. Returns its index.
-    pub fn add_pool(
-        &mut self,
-        lp_token: AssetId,
-        alloc_point: u64,
-        timestamp: Timestamp,
-    ) -> usize {
+    pub fn add_pool(&mut self, lp_token: AssetId, alloc_point: u64, timestamp: Timestamp) -> usize {
         let pool_id = PoolId::new(self.pools.len() as u64);
         self.pools.push(FarmPool {
             pool_id,
@@ -82,23 +86,62 @@ impl FarmManager {
             last_reward_time: timestamp,
         });
         self.total_alloc_point += alloc_point;
-        self.pools.len() - 1
+        let pool_index = self.pools.len() - 1;
+        self.pool_utility_signals
+            .entry(pool_index)
+            .or_insert_with(UtilitySignalSnapshot::default);
+        pool_index
+    }
+
+    /// Update utility signal snapshot used by reward hooks for a pool.
+    pub fn set_pool_utility_signal(
+        &mut self,
+        pool_index: usize,
+        signal: UtilitySignalSnapshot,
+    ) -> DefiResult<()> {
+        if pool_index >= self.pools.len() {
+            return Err(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
+            });
+        }
+        self.pool_utility_signals
+            .insert(pool_index, signal.clamped());
+        Ok(())
+    }
+
+    pub fn pool_utility_signal(&self, pool_index: usize) -> DefiResult<UtilitySignalSnapshot> {
+        if pool_index >= self.pools.len() {
+            return Err(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
+            });
+        }
+        Ok(self.signal_for_pool(pool_index))
+    }
+
+    fn signal_for_pool(&self, pool_index: usize) -> UtilitySignalSnapshot {
+        self.pool_utility_signals
+            .get(&pool_index)
+            .copied()
+            .unwrap_or_default()
     }
 
     /// Update a pool's accumulated reward per share based on elapsed time.
     pub fn update_pool(&mut self, pool_index: usize, timestamp: Timestamp) -> DefiResult<()> {
-        let pool = self
-            .pools
-            .get_mut(pool_index)
-            .ok_or(DefiError::InvalidPool {
-                pool_id: PoolId::new(pool_index as u64),
-            })?;
+        let pool = self.pools.get(pool_index).ok_or(DefiError::InvalidPool {
+            pool_id: PoolId::new(pool_index as u64),
+        })?;
 
         if timestamp <= pool.last_reward_time {
             return Ok(());
         }
 
         if pool.total_staked.is_zero() || self.total_alloc_point == 0 {
+            let pool = self
+                .pools
+                .get_mut(pool_index)
+                .ok_or(DefiError::InvalidPool {
+                    pool_id: PoolId::new(pool_index as u64),
+                })?;
             pool.last_reward_time = timestamp;
             return Ok(());
         }
@@ -116,6 +159,10 @@ impl FarmManager {
             .ok_or(DefiError::Overflow {
                 operation: "update_pool reward calculation".into(),
             })?;
+        let reward = self
+            .utility_reward_hook
+            .apply(Amount::new(reward), &self.signal_for_pool(pool_index))?
+            .0;
 
         // acc_reward_per_share += reward * ACC_REWARD_PRECISION / total_staked
         let acc_increment = reward
@@ -125,12 +172,18 @@ impl FarmManager {
                 operation: "update_pool acc_reward".into(),
             })?;
 
-        pool.acc_reward_per_share = pool
-            .acc_reward_per_share
-            .checked_add(acc_increment)
-            .ok_or(DefiError::Overflow {
-                operation: "update_pool acc_reward sum".into(),
+        let pool = self
+            .pools
+            .get_mut(pool_index)
+            .ok_or(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
             })?;
+        pool.acc_reward_per_share =
+            pool.acc_reward_per_share
+                .checked_add(acc_increment)
+                .ok_or(DefiError::Overflow {
+                    operation: "update_pool acc_reward sum".into(),
+                })?;
 
         pool.last_reward_time = timestamp;
         Ok(())
@@ -182,9 +235,12 @@ impl FarmManager {
             })?;
 
         // Update pool total.
-        let pool = self.pools.get_mut(pool_index).ok_or(DefiError::InvalidPool {
-            pool_id: PoolId::new(pool_index as u64),
-        })?;
+        let pool = self
+            .pools
+            .get_mut(pool_index)
+            .ok_or(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
+            })?;
         pool.total_staked = pool
             .total_staked
             .checked_add(amount)
@@ -210,9 +266,12 @@ impl FarmManager {
         })?;
         let acc = pool.acc_reward_per_share;
         let key = (pool_index, user);
-        let info = self.user_info.get_mut(&key).ok_or(DefiError::Unauthorized {
-            reason: "no stake found for user".into(),
-        })?;
+        let info = self
+            .user_info
+            .get_mut(&key)
+            .ok_or(DefiError::Unauthorized {
+                reason: "no stake found for user".into(),
+            })?;
 
         if amount > info.amount {
             return Err(DefiError::InsufficientBalance {
@@ -246,9 +305,12 @@ impl FarmManager {
             })?;
 
         // Update pool total.
-        let pool = self.pools.get_mut(pool_index).ok_or(DefiError::InvalidPool {
-            pool_id: PoolId::new(pool_index as u64),
-        })?;
+        let pool = self
+            .pools
+            .get_mut(pool_index)
+            .ok_or(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
+            })?;
         pool.total_staked = pool
             .total_staked
             .checked_sub(amount)
@@ -287,14 +349,13 @@ impl FarmManager {
             let total_alloc = self.total_alloc_point as u128;
             let rps = self.reward_per_second.0;
 
-            let reward = elapsed
-                .saturating_mul(rps)
-                .saturating_mul(pool_alloc)
-                / total_alloc;
+            let reward = elapsed.saturating_mul(rps).saturating_mul(pool_alloc) / total_alloc;
+            let reward = self
+                .utility_reward_hook
+                .apply(Amount::new(reward), &self.signal_for_pool(pool_index))?
+                .0;
 
-            let acc_increment = reward
-                .saturating_mul(ACC_REWARD_PRECISION)
-                / pool.total_staked.0;
+            let acc_increment = reward.saturating_mul(ACC_REWARD_PRECISION) / pool.total_staked.0;
 
             acc = acc.saturating_add(acc_increment);
         }
@@ -315,6 +376,7 @@ impl Default for FarmManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wrfcoin_defi_common::types::UtilitySignalSnapshot;
 
     fn addr(n: u8) -> Address {
         let mut bytes = [0u8; 32];
@@ -397,8 +459,8 @@ mod tests {
     #[test]
     fn test_multiple_pools_allocation() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP-A"), 75, ts(0));  // 75%
-        fm.add_pool(AssetId::new("LP-B"), 25, ts(0));  // 25%
+        fm.add_pool(AssetId::new("LP-A"), 75, ts(0)); // 75%
+        fm.add_pool(AssetId::new("LP-B"), 25, ts(0)); // 25%
 
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
         fm.deposit(addr(2), 1, Amount::new(1000), ts(0)).unwrap();
@@ -417,5 +479,47 @@ mod tests {
         fm.add_pool(AssetId::new("LP"), 100, ts(0));
         let pending = fm.pending_rewards(&addr(99), 0, ts(10)).unwrap();
         assert_eq!(pending, Amount::ZERO);
+    }
+
+    #[test]
+    fn test_utility_signal_penalizes_low_verified_usefulness() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.set_pool_utility_signal(
+            0,
+            UtilitySignalSnapshot {
+                forecast_usefulness_bps: 2_000,
+                report_usefulness_bps: 2_000,
+                verification_confidence_bps: 10_000,
+                verified_events: 1,
+                unverified_events: 9,
+            },
+        )
+        .unwrap();
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert!(pending < Amount::new(1000));
+    }
+
+    #[test]
+    fn test_utility_signal_boosts_high_verified_usefulness() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.set_pool_utility_signal(
+            0,
+            UtilitySignalSnapshot {
+                forecast_usefulness_bps: 9_000,
+                report_usefulness_bps: 9_500,
+                verification_confidence_bps: 10_000,
+                verified_events: 9,
+                unverified_events: 1,
+            },
+        )
+        .unwrap();
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert!(pending > Amount::new(1000));
     }
 }
