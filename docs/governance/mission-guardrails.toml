@@ -42,3 +42,9 @@ title = "Abuse-resilience controls must be explicit"
 required = true
 applies_to = ["merge", "release"]
 description = "Features must document anti-abuse controls and include a rollback path if abuse or drift appears in production."
+
+[deprecation_gate]
+enabled = true
+allowed_statuses = ["active", "deprecated", "remediation"]
+release_block_statuses = ["deprecated"]
+require_remediation_issue_for_non_active = true

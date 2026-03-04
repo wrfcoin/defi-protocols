@@ -127,6 +127,85 @@ class MissionGuardrailValidatorTests(unittest.TestCase):
                 f"missing section error not found: {errors}",
             )
 
+    def test_validate_module_statuses_auto_deprecates_failed_active_module(self) -> None:
+        policy = cmg.DeprecationGatePolicy(
+            enabled=True,
+            allowed_statuses=frozenset({"active", "deprecated", "remediation"}),
+            release_block_statuses=frozenset({"deprecated"}),
+            require_remediation_issue_for_non_active=True,
+        )
+        module_statuses = [
+            cmg.ModuleStatus(
+                module_id="yield-farming",
+                status="active",
+                failing_guardrails=frozenset({"privacy.financial_minimization"}),
+                remediation_issue="",
+                remediation_notes="",
+            )
+        ]
+        errors = cmg.validate_module_statuses(
+            Path("module-guardrail-status.toml"),
+            module_statuses,
+            {"privacy.financial_minimization"},
+            policy,
+        )
+        self.assertTrue(errors)
+        self.assertTrue(any("set status to 'deprecated'" in error for error in errors), errors)
+
+    def test_collect_errors_blocks_release_for_deprecated_module(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            (root / "docs/governance").mkdir(parents=True)
+            (root / "docs/proposals").mkdir(parents=True)
+
+            (root / "docs/governance/mission-guardrails.toml").write_text(
+                textwrap.dedent(
+                    """\
+                    [[guardrail]]
+                    id = "privacy.financial_minimization"
+                    required = true
+                    applies_to = ["merge", "release"]
+
+                    [deprecation_gate]
+                    enabled = true
+                    allowed_statuses = ["active", "deprecated", "remediation"]
+                    release_block_statuses = ["deprecated"]
+                    require_remediation_issue_for_non_active = true
+                    """
+                ),
+                encoding="utf-8",
+            )
+            (root / "docs/governance/mission-guardrail-status.md").write_text(
+                "- [x] privacy.financial_minimization\n",
+                encoding="utf-8",
+            )
+            (root / "docs/governance/module-guardrail-status.toml").write_text(
+                textwrap.dedent(
+                    """\
+                    version = 1
+
+                    [[module]]
+                    id = "amm"
+                    status = "deprecated"
+                    failing_guardrails = ["privacy.financial_minimization"]
+                    remediation_issue = "https://github.com/wrfcoin/defi-protocols/issues/10"
+                    remediation_notes = "Working through deprecation and reactivation checklist."
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            errors = cmg.collect_errors(
+                guardrails_path=root / "docs/governance/mission-guardrails.toml",
+                release_gate_path=root / "docs/governance/mission-guardrail-status.md",
+                proposals_dir=root / "docs/proposals",
+                module_status_path=root / "docs/governance/module-guardrail-status.toml",
+            )
+            self.assertTrue(
+                any("blocks release" in error for error in errors),
+                f"expected release-blocking error, got: {errors}",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
