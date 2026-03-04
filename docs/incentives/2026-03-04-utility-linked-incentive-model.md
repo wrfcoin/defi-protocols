@@ -46,6 +46,8 @@ Implementation lives in:
 
 - Use `UtilityBacktestTelemetry.utility_reward_ratio_bps` as the primary KPI:
   - ratio of weighted rewards that are utility-linked vs financial-only activity.
+- For post-issue-#9 payout integrity, pair with escrow KPI:
+  - `EscrowTelemetry.released_after_verification_share_bps()`.
 
 ## Backtest/Simulation
 
