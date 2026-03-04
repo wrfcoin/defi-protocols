@@ -34,6 +34,20 @@ cargo test
 cargo build
 ```
 
+### Governance Guardrails
+
+All DeFi feature proposals must satisfy mission-alignment guardrails before merge/release.
+
+```bash
+python3 scripts/check_mission_guardrails.py --repo-root .
+python3 -m unittest scripts/test_check_mission_guardrails.py
+```
+
+Guardrail sources:
+- `docs/governance/mission-guardrails.toml`
+- `docs/governance/mission-guardrail-status.md`
+- `docs/proposals/defi-feature-proposal-template.md`
+
 ### Solidity
 
 ```bash
