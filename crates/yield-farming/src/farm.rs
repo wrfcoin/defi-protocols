@@ -1,3 +1,7 @@
+use crate::escrow::{
+    EscrowSettlement, EscrowTelemetry, QualityOutcomeSignalSource, QualityVerificationOutcome,
+    RewardEscrowBook, RewardEscrowPolicy,
+};
 use crate::utility_hooks::UtilityRewardHook;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -60,6 +64,8 @@ pub struct FarmManager {
     pub utility_reward_hook: UtilityRewardHook,
     /// Utility signal snapshot per pool index.
     pub pool_utility_signals: HashMap<usize, UtilitySignalSnapshot>,
+    /// Reward escrow state for quality/utility verification-gated payouts.
+    pub reward_escrow: RewardEscrowBook,
 }
 
 impl FarmManager {
@@ -71,6 +77,7 @@ impl FarmManager {
             total_alloc_point: 0,
             utility_reward_hook: UtilityRewardHook::default(),
             pool_utility_signals: HashMap::new(),
+            reward_escrow: RewardEscrowBook::default(),
         }
     }
 
@@ -123,6 +130,104 @@ impl FarmManager {
             .get(&pool_index)
             .copied()
             .unwrap_or_default()
+    }
+
+    pub fn set_reward_escrow_policy(&mut self, policy: RewardEscrowPolicy) -> DefiResult<()> {
+        self.reward_escrow.set_policy(policy)
+    }
+
+    pub fn reward_escrow_telemetry(&self) -> EscrowTelemetry {
+        self.reward_escrow.telemetry()
+    }
+
+    pub fn escrowed_reward_count(&self) -> usize {
+        self.reward_escrow.escrowed_count()
+    }
+
+    pub fn escrowed_reward(
+        &self,
+        escrow_id: u64,
+    ) -> DefiResult<&crate::escrow::EscrowedReward> {
+        self.reward_escrow
+            .escrowed_reward(escrow_id)
+            .ok_or(DefiError::InvalidAmount {
+                reason: format!("unknown escrow_id {escrow_id}"),
+            })
+    }
+
+    fn harvestable_reward(
+        &mut self,
+        user: Address,
+        pool_index: usize,
+        timestamp: Timestamp,
+    ) -> DefiResult<(PoolId, Amount)> {
+        self.update_pool(pool_index, timestamp)?;
+
+        let (pool_id, acc_reward_per_share) = self
+            .pools
+            .get(pool_index)
+            .map(|pool| (pool.pool_id, pool.acc_reward_per_share))
+            .ok_or(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
+            })?;
+
+        let key = (pool_index, user);
+        let info = self
+            .user_info
+            .get_mut(&key)
+            .ok_or(DefiError::Unauthorized {
+                reason: "no stake found for user".into(),
+            })?;
+
+        let accumulated = info
+            .amount
+            .0
+            .checked_mul(acc_reward_per_share)
+            .and_then(|value| value.checked_div(ACC_REWARD_PRECISION))
+            .ok_or(DefiError::Overflow {
+                operation: "farm harvest accumulated".into(),
+            })?;
+        let pending = Amount(accumulated.saturating_sub(info.reward_debt));
+        info.reward_debt = accumulated;
+
+        Ok((pool_id, pending))
+    }
+
+    /// Harvest rewards and route payout through escrow policy using an explicit verification outcome.
+    pub fn harvest_with_outcome(
+        &mut self,
+        user: Address,
+        pool_index: usize,
+        timestamp: Timestamp,
+        outcome: QualityVerificationOutcome,
+    ) -> DefiResult<EscrowSettlement> {
+        let (pool_id, pending) = self.harvestable_reward(user, pool_index, timestamp)?;
+        self.reward_escrow
+            .record_reward(user, pool_id, pending, timestamp, outcome)
+    }
+
+    /// Harvest rewards and fetch verification outcome from a signal source.
+    pub fn harvest_with_signal_source<S: QualityOutcomeSignalSource>(
+        &mut self,
+        user: Address,
+        pool_index: usize,
+        timestamp: Timestamp,
+        signal_source: &S,
+    ) -> DefiResult<EscrowSettlement> {
+        let (pool_id, pending) = self.harvestable_reward(user, pool_index, timestamp)?;
+        let outcome = signal_source.quality_outcome_for_reward(user, pool_id, pending, timestamp);
+        self.reward_escrow
+            .record_reward(user, pool_id, pending, timestamp, outcome)
+    }
+
+    pub fn settle_escrowed_reward(
+        &mut self,
+        escrow_id: u64,
+        outcome: QualityVerificationOutcome,
+        settled_at: Timestamp,
+    ) -> DefiResult<EscrowSettlement> {
+        self.reward_escrow
+            .settle_escrow(escrow_id, outcome, settled_at)
     }
 
     /// Update a pool's accumulated reward per share based on elapsed time.
@@ -376,6 +481,9 @@ impl Default for FarmManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::escrow::{ForfeitReason, QualityVerificationOutcome};
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
     use wrfcoin_defi_common::types::UtilitySignalSnapshot;
 
     fn addr(n: u8) -> Address {
@@ -386,6 +494,33 @@ mod tests {
 
     fn ts(secs: u64) -> Timestamp {
         Timestamp::new(secs)
+    }
+
+    struct MockQualitySource {
+        outcomes: RefCell<VecDeque<QualityVerificationOutcome>>,
+    }
+
+    impl MockQualitySource {
+        fn new(outcomes: Vec<QualityVerificationOutcome>) -> Self {
+            Self {
+                outcomes: RefCell::new(VecDeque::from(outcomes)),
+            }
+        }
+    }
+
+    impl QualityOutcomeSignalSource for MockQualitySource {
+        fn quality_outcome_for_reward(
+            &self,
+            _beneficiary: Address,
+            _pool_id: PoolId,
+            _reward_amount: Amount,
+            _reward_timestamp: Timestamp,
+        ) -> QualityVerificationOutcome {
+            self.outcomes
+                .borrow_mut()
+                .pop_front()
+                .unwrap_or(QualityVerificationOutcome::Pending)
+        }
     }
 
     #[test]
@@ -521,5 +656,94 @@ mod tests {
 
         let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
         assert!(pending > Amount::new(1000));
+    }
+
+    #[test]
+    fn test_harvest_holds_until_quality_verification_settles() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let source = MockQualitySource::new(vec![QualityVerificationOutcome::Pending]);
+        let first = fm
+            .harvest_with_signal_source(addr(1), 0, ts(10), &source)
+            .unwrap();
+
+        let escrow_id = match first {
+            EscrowSettlement::Held(entry) => {
+                assert_eq!(entry.amount, Amount::new(1000));
+                entry.escrow_id
+            }
+            _ => panic!("expected pending outcome to escrow rewards"),
+        };
+        assert_eq!(fm.escrowed_reward_count(), 1);
+
+        let settled = fm
+            .settle_escrowed_reward(
+                escrow_id,
+                QualityVerificationOutcome::Verified {
+                    quality_score_bps: 7_500,
+                },
+                ts(12),
+            )
+            .unwrap();
+        match settled {
+            EscrowSettlement::Released {
+                amount,
+                escrow_id: Some(id),
+            } => {
+                assert_eq!(amount, Amount::new(1000));
+                assert_eq!(id, escrow_id);
+            }
+            _ => panic!("expected escrowed reward to be released"),
+        }
+        assert_eq!(fm.escrowed_reward_count(), 0);
+        assert_eq!(
+            fm.reward_escrow_telemetry()
+                .released_after_verification_share_bps(),
+            10_000
+        );
+    }
+
+    #[test]
+    fn test_harvest_forfeits_low_quality_outcomes() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let outcome = QualityVerificationOutcome::Verified {
+            quality_score_bps: 4_000,
+        };
+        let settlement = fm
+            .harvest_with_outcome(addr(1), 0, ts(10), outcome)
+            .unwrap();
+
+        match settlement {
+            EscrowSettlement::Forfeited {
+                amount,
+                reason: ForfeitReason::LowQuality,
+                ..
+            } => assert_eq!(amount, Amount::new(1000)),
+            _ => panic!("expected low-quality rewards to be forfeited"),
+        }
+    }
+
+    #[test]
+    fn test_harvest_forfeits_fraudulent_outcomes() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let settlement = fm
+            .harvest_with_outcome(addr(1), 0, ts(10), QualityVerificationOutcome::FraudDetected)
+            .unwrap();
+        match settlement {
+            EscrowSettlement::Forfeited {
+                amount,
+                reason: ForfeitReason::FraudDetected,
+                ..
+            } => assert_eq!(amount, Amount::new(1000)),
+            _ => panic!("expected fraudulent rewards to be forfeited"),
+        }
     }
 }
