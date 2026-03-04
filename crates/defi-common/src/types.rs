@@ -213,6 +213,76 @@ impl fmt::Display for Timestamp {
     }
 }
 
+/// Utility signal snapshot used to weight DeFi incentives toward verified
+/// forecast/report usefulness outcomes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UtilitySignalSnapshot {
+    /// Verified forecast usefulness score in basis points (0..=10_000).
+    pub forecast_usefulness_bps: u16,
+    /// Verified report usefulness score in basis points (0..=10_000).
+    pub report_usefulness_bps: u16,
+    /// Confidence in utility verification quality (0..=10_000).
+    pub verification_confidence_bps: u16,
+    /// Count of verified utility events in the sampling window.
+    pub verified_events: u64,
+    /// Count of unverified utility events in the sampling window.
+    pub unverified_events: u64,
+}
+
+impl UtilitySignalSnapshot {
+    pub const BPS_SCALE: u16 = 10_000;
+    pub const NEUTRAL_BPS: u16 = 5_000;
+
+    pub fn neutral() -> Self {
+        Self {
+            forecast_usefulness_bps: Self::NEUTRAL_BPS,
+            report_usefulness_bps: Self::NEUTRAL_BPS,
+            verification_confidence_bps: Self::BPS_SCALE,
+            verified_events: 0,
+            unverified_events: 0,
+        }
+    }
+
+    pub fn clamped(self) -> Self {
+        Self {
+            forecast_usefulness_bps: self.forecast_usefulness_bps.min(Self::BPS_SCALE),
+            report_usefulness_bps: self.report_usefulness_bps.min(Self::BPS_SCALE),
+            verification_confidence_bps: self.verification_confidence_bps.min(Self::BPS_SCALE),
+            verified_events: self.verified_events,
+            unverified_events: self.unverified_events,
+        }
+    }
+
+    /// Composite utility score in basis points. Forecast and report usefulness
+    /// are averaged and scaled by verification confidence.
+    pub fn composite_usefulness_bps(&self) -> u16 {
+        let signal = self.clamped();
+        let avg = (signal.forecast_usefulness_bps as u32 + signal.report_usefulness_bps as u32) / 2;
+        let weighted = (avg * signal.verification_confidence_bps as u32) / Self::BPS_SCALE as u32;
+        weighted as u16
+    }
+
+    /// Ratio of verified utility events in basis points. If no events are
+    /// available, returns neutral to avoid over-penalizing cold-start pools.
+    pub fn verified_event_ratio_bps(&self) -> u16 {
+        let total = self.verified_events.saturating_add(self.unverified_events);
+        if total == 0 {
+            return Self::NEUTRAL_BPS;
+        }
+        let ratio = self
+            .verified_events
+            .saturating_mul(Self::BPS_SCALE as u64)
+            .saturating_div(total);
+        ratio.min(Self::BPS_SCALE as u64) as u16
+    }
+}
+
+impl Default for UtilitySignalSnapshot {
+    fn default() -> Self {
+        Self::neutral()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,7 +336,10 @@ mod tests {
     #[test]
     fn test_amount_mul_fraction() {
         // 1000 * 30 / 10000 = 3
-        assert_eq!(Amount::new(1000).mul_fraction(30, 10000), Some(Amount::new(3)));
+        assert_eq!(
+            Amount::new(1000).mul_fraction(30, 10000),
+            Some(Amount::new(3))
+        );
         // denominator zero
         assert_eq!(Amount::new(1000).mul_fraction(1, 0), None);
     }
@@ -322,7 +395,10 @@ mod tests {
 
     #[test]
     fn test_price_inverse_zero() {
-        let p = Price { numerator: 0, denominator: 1 };
+        let p = Price {
+            numerator: 0,
+            denominator: 1,
+        };
         assert!(p.inverse().is_none());
     }
 
@@ -362,5 +438,25 @@ mod tests {
         let t2 = Timestamp::new(150);
         assert_eq!(t2.elapsed_since(t1), 50);
         assert_eq!(t1.elapsed_since(t2), 0); // saturating
+    }
+
+    #[test]
+    fn test_utility_signal_default_is_neutral() {
+        let signal = UtilitySignalSnapshot::default();
+        assert_eq!(signal.composite_usefulness_bps(), 5_000);
+        assert_eq!(signal.verified_event_ratio_bps(), 5_000);
+    }
+
+    #[test]
+    fn test_utility_signal_ratio_uses_verified_vs_unverified() {
+        let signal = UtilitySignalSnapshot {
+            forecast_usefulness_bps: 9_000,
+            report_usefulness_bps: 8_000,
+            verification_confidence_bps: 10_000,
+            verified_events: 9,
+            unverified_events: 1,
+        };
+        assert_eq!(signal.verified_event_ratio_bps(), 9_000);
+        assert_eq!(signal.composite_usefulness_bps(), 8_500);
     }
 }

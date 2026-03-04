@@ -34,6 +34,12 @@ cargo test
 cargo build
 ```
 
+### Incentive Backtest
+
+```bash
+python3 scripts/simulate_utility_incentives.py
+```
+
 ### Solidity
 
 ```bash
