@@ -213,6 +213,63 @@ impl fmt::Display for Timestamp {
     }
 }
 
+/// Canonical liquidation event payload shared by Rust lending logic and
+/// Solidity adapter conformance tests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiquidationEvent {
+    pub position_id: [u8; 32],
+    pub collateral_seized: Amount,
+    pub debt_repaid: Amount,
+    pub liquidator: Address,
+    pub timestamp: Timestamp,
+}
+
+impl LiquidationEvent {
+    pub fn new(
+        position_id: [u8; 32],
+        collateral_seized: Amount,
+        debt_repaid: Amount,
+        liquidator: Address,
+        timestamp: Timestamp,
+    ) -> Self {
+        Self {
+            position_id,
+            collateral_seized,
+            debt_repaid,
+            liquidator,
+            timestamp,
+        }
+    }
+
+    pub fn borrower_position_id(borrower: &Address) -> [u8; 32] {
+        let mut position_id = [0u8; 32];
+        position_id[12..].copy_from_slice(&borrower.as_bytes()[12..]);
+        position_id
+    }
+
+    pub fn abi_encode(&self) -> Vec<u8> {
+        let mut encoded = Vec::with_capacity(32 * 5);
+        encoded.extend_from_slice(&self.position_id);
+        encoded.extend_from_slice(&encode_u256(self.collateral_seized.0));
+        encoded.extend_from_slice(&encode_u256(self.debt_repaid.0));
+        encoded.extend_from_slice(&encode_address(&self.liquidator));
+        encoded.extend_from_slice(&encode_u256(self.timestamp.as_secs() as u128));
+        encoded
+    }
+}
+
+fn encode_u256(value: u128) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[16..].copy_from_slice(&value.to_be_bytes());
+    out
+}
+
+fn encode_address(address: &Address) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out[12..].copy_from_slice(&address.as_bytes()[12..]);
+    out
+}
+
 /// Utility signal snapshot used to weight DeFi incentives toward verified
 /// forecast/report usefulness outcomes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -292,6 +349,33 @@ mod tests {
         assert!(Amount::ZERO.is_zero());
         assert!(Amount::new(0).is_zero());
         assert!(!Amount::new(1).is_zero());
+    }
+
+    #[test]
+    fn test_liquidation_event_abi_encoding_layout() {
+        let mut borrower_bytes = [0u8; 32];
+        borrower_bytes[31] = 0xaa;
+        let borrower = Address::from_bytes(borrower_bytes);
+
+        let mut liquidator_bytes = [0u8; 32];
+        liquidator_bytes[31] = 0xbb;
+        let liquidator = Address::from_bytes(liquidator_bytes);
+
+        let event = LiquidationEvent::new(
+            LiquidationEvent::borrower_position_id(&borrower),
+            Amount::new(210),
+            Amount::new(200),
+            liquidator,
+            Timestamp::new(3),
+        );
+
+        let encoded = event.abi_encode();
+        assert_eq!(encoded.len(), 160);
+        assert_eq!(&encoded[..32], &LiquidationEvent::borrower_position_id(&borrower));
+        assert_eq!(encoded[63], 210);
+        assert_eq!(encoded[95], 200);
+        assert_eq!(encoded[127], 0xbb);
+        assert_eq!(encoded[159], 3);
     }
 
     #[test]
