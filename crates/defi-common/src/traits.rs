@@ -1,5 +1,8 @@
 use crate::error::DefiResult;
-use crate::types::{Address, Amount, AssetId, PoolId, Price, Timestamp, UtilitySignalSnapshot};
+use crate::types::{
+    Address, Amount, AssetId, LiquidationEvent, PoolId, Price, Timestamp,
+    UtilitySignalSnapshot,
+};
 
 /// Core trait for lending protocol implementations.
 pub trait LendingProtocol {
@@ -39,7 +42,7 @@ pub trait LendingProtocol {
         collateral_asset: AssetId,
         amount: Amount,
         timestamp: Timestamp,
-    ) -> DefiResult<Amount>;
+    ) -> DefiResult<LiquidationEvent>;
 }
 
 /// Trait for automated market maker (AMM) liquidity pools.

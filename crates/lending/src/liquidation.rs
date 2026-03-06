@@ -5,15 +5,18 @@ use wrfcoin_defi_common::types::{Address, Amount, AssetId};
 
 use crate::collateral::CollateralManager;
 
+/// Result of a liquidation before adapter/event projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiquidationOutcome {
+    pub collateral_seized: Amount,
+    pub debt_repaid: Amount,
+}
+
 /// Engine responsible for checking and executing liquidations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LiquidationEngine {
-    /// Health factor threshold (in bps) below which a position can be liquidated.
-    /// Typically 10_000 (i.e., 100% — when collateral value * LTV < debt value).
     pub liquidation_threshold_bps: u64,
-    /// Bonus given to liquidators in basis points (e.g., 500 = 5%).
     pub liquidation_bonus_bps: u64,
-    /// Maximum fraction of debt that can be liquidated at once, in bps.
     pub close_factor_bps: u64,
 }
 
@@ -30,7 +33,6 @@ impl LiquidationEngine {
         }
     }
 
-    /// Check whether a borrower's position is eligible for liquidation.
     pub fn check_liquidatable(
         &self,
         borrower: &Address,
@@ -41,12 +43,7 @@ impl LiquidationEngine {
         Ok(health_factor < self.liquidation_threshold_bps)
     }
 
-    /// Calculate the maximum amount of debt that can be repaid in a liquidation.
-    pub fn calculate_liquidation_amount(
-        &self,
-        debt_amount: Amount,
-    ) -> DefiResult<Amount> {
-        // Liquidator can repay up to close_factor of the debt.
+    pub fn calculate_liquidation_amount(&self, debt_amount: Amount) -> DefiResult<Amount> {
         debt_amount
             .mul_fraction(self.close_factor_bps as u128, 10_000)
             .ok_or(DefiError::Overflow {
@@ -54,7 +51,6 @@ impl LiquidationEngine {
             })
     }
 
-    /// Calculate the collateral amount the liquidator receives, including the bonus.
     pub fn calculate_collateral_reward(
         &self,
         debt_repaid: Amount,
@@ -65,12 +61,10 @@ impl LiquidationEngine {
         let debt_price = oracle.get_price(debt_asset)?;
         let collateral_price = oracle.get_price(collateral_asset)?;
 
-        // Convert debt amount to its base-currency value.
         let debt_value = debt_price.apply(debt_repaid).ok_or(DefiError::Overflow {
             operation: "liquidation debt valuation".into(),
         })?;
 
-        // Apply liquidation bonus: value * (10_000 + bonus) / 10_000.
         let bonus_multiplier = 10_000u128 + self.liquidation_bonus_bps as u128;
         let rewarded_value = debt_value
             .mul_fraction(bonus_multiplier, 10_000)
@@ -78,7 +72,6 @@ impl LiquidationEngine {
                 operation: "liquidation bonus".into(),
             })?;
 
-        // Convert rewarded value back to collateral asset units.
         let inverse_price = collateral_price.inverse().ok_or(DefiError::OracleError {
             message: "collateral price is zero".into(),
         })?;
@@ -88,7 +81,6 @@ impl LiquidationEngine {
         })
     }
 
-    /// Execute a liquidation: verify eligibility, calculate amounts, and modify state.
     pub fn liquidate(
         &self,
         _liquidator: Address,
@@ -98,15 +90,13 @@ impl LiquidationEngine {
         repay_amount: Amount,
         collateral_manager: &mut CollateralManager,
         oracle: &dyn PriceOracle,
-    ) -> DefiResult<Amount> {
-        // Verify the position is liquidatable.
+    ) -> DefiResult<LiquidationOutcome> {
         if !self.check_liquidatable(borrower, collateral_manager, oracle)? {
             return Err(DefiError::InsufficientCollateral {
                 health_factor_bps: collateral_manager.get_health_factor(borrower, oracle)?,
             });
         }
 
-        // Check the repay amount does not exceed the close factor.
         let debt_key = (*borrower, debt_asset.clone());
         let total_debt = collateral_manager
             .debts
@@ -124,21 +114,21 @@ impl LiquidationEngine {
             });
         }
 
-        // Calculate collateral reward.
         let collateral_reward =
             self.calculate_collateral_reward(repay_amount, debt_asset, collateral_asset, oracle)?;
 
-        // Update debt.
         if let Some(debt) = collateral_manager.debts.get_mut(&debt_key) {
             *debt = debt.checked_sub(repay_amount).ok_or(DefiError::Overflow {
                 operation: "liquidation debt reduction".into(),
             })?;
         }
 
-        // Seize collateral.
         collateral_manager.remove_collateral(*borrower, collateral_asset, collateral_reward)?;
 
-        Ok(collateral_reward)
+        Ok(LiquidationOutcome {
+            collateral_seized: collateral_reward,
+            debt_repaid: repay_amount,
+        })
     }
 }
 
@@ -151,12 +141,13 @@ impl Default for LiquidationEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::collateral::{CollateralConfig, CollateralManager};
     use crate::oracle::SimplePriceOracle;
-    use wrfcoin_defi_common::types::Price;
+    use wrfcoin_defi_common::types::{Price, Timestamp};
 
     fn addr(n: u8) -> Address {
         let mut bytes = [0u8; 32];
-        bytes[0] = n;
+        bytes[31] = n;
         Address::from_bytes(bytes)
     }
 
@@ -166,14 +157,18 @@ mod tests {
 
     fn setup_undercollateralized() -> (CollateralManager, SimplePriceOracle) {
         let mut cm = CollateralManager::new();
-        // Collateral: 500 ETH at LTV 75% (enough for liquidation reward seizure)
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(500), 7500).unwrap();
-        // Debt: 600 USDC — more than collateral * LTV (500*1*7500/10000 = 375 < 600)
+        cm.add_collateral(
+            addr(1),
+            asset("ETH"),
+            Amount::new(500),
+            CollateralConfig::new(7_500, 8_000).unwrap(),
+        )
+        .unwrap();
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(600));
 
         let mut oracle = SimplePriceOracle::new();
-        oracle.set_price(asset("ETH"), Price::from_integer(1));
-        oracle.set_price(asset("USDC"), Price::from_integer(1));
+        oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
+        oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
         (cm, oracle)
     }
 
@@ -181,18 +176,23 @@ mod tests {
     fn test_check_liquidatable() {
         let (cm, oracle) = setup_undercollateralized();
         let engine = LiquidationEngine::default();
-        // hf = (100 * 1 * 7500) / (200 * 1) = 750_000 / 200 = 3750 < 10_000
         assert!(engine.check_liquidatable(&addr(1), &cm, &oracle).unwrap());
     }
 
     #[test]
     fn test_check_not_liquidatable() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(10_000), 7500).unwrap();
+        cm.add_collateral(
+            addr(1),
+            asset("ETH"),
+            Amount::new(10_000),
+            CollateralConfig::new(7_500, 8_000).unwrap(),
+        )
+        .unwrap();
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(1));
         let mut oracle = SimplePriceOracle::new();
-        oracle.set_price(asset("ETH"), Price::from_integer(1));
-        oracle.set_price(asset("USDC"), Price::from_integer(1));
+        oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
+        oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
 
         let engine = LiquidationEngine::default();
         assert!(!engine.check_liquidatable(&addr(1), &cm, &oracle).unwrap());
@@ -200,22 +200,18 @@ mod tests {
 
     #[test]
     fn test_calculate_liquidation_amount() {
-        let engine = LiquidationEngine::default(); // close_factor = 5000 (50%)
+        let engine = LiquidationEngine::default();
         let max = engine.calculate_liquidation_amount(Amount::new(1000)).unwrap();
         assert_eq!(max, Amount::new(500));
     }
 
     #[test]
     fn test_calculate_collateral_reward() {
-        let engine = LiquidationEngine::new(10_000, 500, 5_000); // 5% bonus
+        let engine = LiquidationEngine::new(10_000, 500, 5_000);
         let mut oracle = SimplePriceOracle::new();
-        oracle.set_price(asset("USDC"), Price::from_integer(1));
-        oracle.set_price(asset("ETH"), Price::from_integer(2));
+        oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
+        oracle.set_price_at(asset("ETH"), Price::from_integer(2), Timestamp::new(1));
 
-        // Repaying 100 USDC, getting ETH with 5% bonus
-        // debt_value = 100 * 1 = 100
-        // rewarded_value = 100 * 10500 / 10000 = 105
-        // collateral in ETH: 105 * (1/2) = 52 (truncated)
         let reward = engine
             .calculate_collateral_reward(Amount::new(100), &asset("USDC"), &asset("ETH"), &oracle)
             .unwrap();
@@ -227,28 +223,48 @@ mod tests {
         let (mut cm, oracle) = setup_undercollateralized();
         let engine = LiquidationEngine::default();
 
-        // Max repay = 600 * 50% = 300
-        let reward = engine
-            .liquidate(addr(2), &addr(1), &asset("USDC"), &asset("ETH"), Amount::new(200), &mut cm, &oracle)
+        let outcome = engine
+            .liquidate(
+                addr(2),
+                &addr(1),
+                &asset("USDC"),
+                &asset("ETH"),
+                Amount::new(200),
+                &mut cm,
+                &oracle,
+            )
             .unwrap();
 
-        // Debt should be reduced by 200
         assert_eq!(cm.debts[&(addr(1), asset("USDC"))], Amount::new(400));
-        // Reward: 200 USDC * 1.05 bonus / ETH price 1 = 210 ETH
-        assert_eq!(reward, Amount::new(210));
+        assert_eq!(outcome.collateral_seized, Amount::new(210));
+        assert_eq!(outcome.debt_repaid, Amount::new(200));
     }
 
     #[test]
     fn test_liquidate_healthy_position_fails() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(10_000), 7500).unwrap();
+        cm.add_collateral(
+            addr(1),
+            asset("ETH"),
+            Amount::new(10_000),
+            CollateralConfig::new(7_500, 8_000).unwrap(),
+        )
+        .unwrap();
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(1));
         let mut oracle = SimplePriceOracle::new();
-        oracle.set_price(asset("ETH"), Price::from_integer(1));
-        oracle.set_price(asset("USDC"), Price::from_integer(1));
+        oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
+        oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
 
         let engine = LiquidationEngine::default();
-        let result = engine.liquidate(addr(2), &addr(1), &asset("USDC"), &asset("ETH"), Amount::new(1), &mut cm, &oracle);
+        let result = engine.liquidate(
+            addr(2),
+            &addr(1),
+            &asset("USDC"),
+            &asset("ETH"),
+            Amount::new(1),
+            &mut cm,
+            &oracle,
+        );
         assert!(result.is_err());
     }
 
@@ -256,8 +272,15 @@ mod tests {
     fn test_liquidate_exceeds_close_factor_fails() {
         let (mut cm, oracle) = setup_undercollateralized();
         let engine = LiquidationEngine::default();
-        // Max repay = 600 * 50% = 300, trying to repay 400
-        let result = engine.liquidate(addr(2), &addr(1), &asset("USDC"), &asset("ETH"), Amount::new(400), &mut cm, &oracle);
+        let result = engine.liquidate(
+            addr(2),
+            &addr(1),
+            &asset("USDC"),
+            &asset("ETH"),
+            Amount::new(400),
+            &mut cm,
+            &oracle,
+        );
         assert!(result.is_err());
     }
 }

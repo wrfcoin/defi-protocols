@@ -74,11 +74,11 @@ contract LendingPool is ReentrancyGuard {
 
     /// @notice Emitted when a borrower's position is liquidated
     event Liquidated(
+        bytes32 indexed positionId,
+        uint256 collateralSeized,
+        uint256 debtRepaid,
         address indexed liquidator,
-        address indexed borrower,
-        address indexed asset,
-        uint256 debtCovered,
-        uint256 collateralSeized
+        uint256 timestamp
     );
 
     // -----------------------------------------------------------------------
@@ -214,7 +214,7 @@ contract LendingPool is ReentrancyGuard {
 
         IERC20(asset).safeTransfer(msg.sender, collateralToSeize);
 
-        emit Liquidated(msg.sender, borrower, asset, debt, collateralToSeize);
+        emit Liquidated(_positionId(borrower), collateralToSeize, debt, msg.sender, block.timestamp);
     }
 
     // -----------------------------------------------------------------------
@@ -283,5 +283,9 @@ contract LendingPool is ReentrancyGuard {
         for (uint256 i = 0; i < assets.length; i++) {
             total += borrows[user][assets[i]];
         }
+    }
+
+    function _positionId(address borrower) internal pure returns (bytes32) {
+        return bytes32(uint256(uint160(borrower)));
     }
 }
