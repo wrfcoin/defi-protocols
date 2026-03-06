@@ -4,13 +4,15 @@ pragma solidity ^0.8.24;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IPriceOracle} from "../interfaces/IPriceOracle.sol";
 
 /// @title LendingPool
 /// @notice A lending pool contract for the WRFCoin DeFi protocol.
 ///         Users can deposit assets as collateral, borrow against them,
 ///         and positions can be liquidated when undercollateralized.
-/// @dev Uses a simplified collateral factor and fixed price model for the scaffold.
-///      Production deployments should integrate a proper price oracle.
+/// @dev Uses an IPriceOracle for USD-denominated asset pricing in health factor
+///      calculations. When no oracle is set, falls back to a 1:1 price assumption
+///      for backward compatibility with tests that don't configure an oracle.
 contract LendingPool is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -59,6 +61,29 @@ contract LendingPool is ReentrancyGuard {
     mapping(address user => mapping(address asset => bool)) internal _hasDeposit;
     mapping(address user => mapping(address asset => bool)) internal _hasBorrow;
 
+    /// @notice Contract owner (set once at deployment)
+    address public owner;
+
+    /// @notice Price oracle used for USD-denominated health factor calculations
+    IPriceOracle public priceOracle;
+
+    // -----------------------------------------------------------------------
+    // Constructor
+    // -----------------------------------------------------------------------
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    // -----------------------------------------------------------------------
+    // Modifiers
+    // -----------------------------------------------------------------------
+
+    modifier onlyOwner() {
+        require(msg.sender == owner, "LendingPool: caller is not the owner");
+        _;
+    }
+
     // -----------------------------------------------------------------------
     // Events
     // -----------------------------------------------------------------------
@@ -74,6 +99,9 @@ contract LendingPool is ReentrancyGuard {
 
     /// @notice Emitted when a user repays a borrowed asset
     event Repaid(address indexed user, address indexed asset, uint256 amount);
+
+    /// @notice Emitted when the price oracle is updated
+    event OracleUpdated(address indexed oldOracle, address indexed newOracle);
 
     /// @notice Emitted when a borrower's position is liquidated
     event Liquidated(
@@ -96,6 +124,18 @@ contract LendingPool is ReentrancyGuard {
     error PositionHealthy();
     error NoBorrowToLiquidate();
     error TooManyAssets();
+
+    // -----------------------------------------------------------------------
+    // External — Admin
+    // -----------------------------------------------------------------------
+
+    /// @notice Set or update the price oracle used for health factor calculations
+    /// @param _oracle The address of the new IPriceOracle implementation
+    function setPriceOracle(IPriceOracle _oracle) external onlyOwner {
+        address oldOracle = address(priceOracle);
+        priceOracle = _oracle;
+        emit OracleUpdated(oldOracle, address(_oracle));
+    }
 
     // -----------------------------------------------------------------------
     // External — Core operations
@@ -263,7 +303,8 @@ contract LendingPool is ReentrancyGuard {
 
     /// @dev Computes the health factor for a user.
     ///      health = (totalCollateral * collateralFactor) / totalBorrow
-    ///      Uses a 1:1 price assumption for scaffold simplicity.
+    ///      Uses IPriceOracle for USD-denominated values when set;
+    ///      falls back to 1:1 price when no oracle is configured.
     ///      Returns type(uint256).max if the user has no borrows.
     function _computeHealthFactor(address user) internal view returns (uint256) {
         uint256 totalBorrow = _totalBorrowValue(user);
@@ -275,19 +316,31 @@ contract LendingPool is ReentrancyGuard {
         return (adjustedCollateral * PRECISION) / totalBorrow;
     }
 
-    /// @dev Sum of all deposit balances for a user (1:1 price assumption)
+    /// @dev Sum of all deposit balances for a user, priced via oracle when available.
+    ///      Falls back to 1:1 (raw balance) when no oracle is set.
     function _totalDepositValue(address user) internal view returns (uint256 total) {
         address[] storage assets = _userDepositAssets[user];
         for (uint256 i = 0; i < assets.length; i++) {
-            total += deposits[user][assets[i]];
+            uint256 balance = deposits[user][assets[i]];
+            if (address(priceOracle) != address(0)) {
+                total += (balance * priceOracle.getPrice(assets[i])) / PRECISION;
+            } else {
+                total += balance;
+            }
         }
     }
 
-    /// @dev Sum of all borrow balances for a user (1:1 price assumption)
+    /// @dev Sum of all borrow balances for a user, priced via oracle when available.
+    ///      Falls back to 1:1 (raw balance) when no oracle is set.
     function _totalBorrowValue(address user) internal view returns (uint256 total) {
         address[] storage assets = _userBorrowAssets[user];
         for (uint256 i = 0; i < assets.length; i++) {
-            total += borrows[user][assets[i]];
+            uint256 balance = borrows[user][assets[i]];
+            if (address(priceOracle) != address(0)) {
+                total += (balance * priceOracle.getPrice(assets[i])) / PRECISION;
+            } else {
+                total += balance;
+            }
         }
     }
 
