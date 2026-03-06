@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use wrfcoin_defi_common::error::{DefiError, DefiResult};
 use wrfcoin_defi_common::types::{Amount, AssetId, PoolId};
 
@@ -60,11 +60,11 @@ impl Router {
         }
 
         // BFS: queue entries are (current_asset, path_so_far).
-        let mut queue: Vec<(AssetId, Vec<RouteHop>)> = vec![(asset_in.clone(), vec![])];
-        let mut visited: Vec<AssetId> = vec![asset_in.clone()];
+        let mut queue: VecDeque<(AssetId, Vec<RouteHop>)> =
+            VecDeque::from([(asset_in.clone(), vec![])]);
+        let mut visited: HashSet<AssetId> = HashSet::from([asset_in.clone()]);
 
-        while let Some((current_asset, path)) = queue.first().cloned() {
-            queue.remove(0);
+        while let Some((current_asset, path)) = queue.pop_front() {
 
             if path.len() >= max_hops {
                 continue;
@@ -102,8 +102,8 @@ impl Router {
                     return Some(new_path);
                 }
 
-                visited.push(next_asset.clone());
-                queue.push((next_asset, new_path));
+                visited.insert(next_asset.clone());
+                queue.push_back((next_asset, new_path));
             }
         }
 

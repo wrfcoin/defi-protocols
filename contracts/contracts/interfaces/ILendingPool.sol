@@ -18,11 +18,11 @@ interface ILendingPool {
 
     /// @notice Emitted when a borrower's position is liquidated
     event Liquidated(
+        bytes32 indexed positionId,
+        uint256 collateralSeized,
+        uint256 debtRepaid,
         address indexed liquidator,
-        address indexed borrower,
-        address indexed asset,
-        uint256 debtCovered,
-        uint256 collateralSeized
+        uint256 timestamp
     );
 
     /// @notice Deposit an asset into the lending pool as collateral
