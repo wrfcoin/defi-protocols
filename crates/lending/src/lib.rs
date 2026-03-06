@@ -7,13 +7,14 @@ pub mod oracle;
 pub mod pool;
 pub mod wire;
 
-pub use collateral::{CollateralManager, CollateralPosition};
+pub use collateral::{CollateralConfig, CollateralManager, CollateralPosition};
 pub use flash_loan::{execute_flash_loan, DEFAULT_FLASH_LOAN_FEE_BPS};
 pub use interest::{InterestRateModel, LinearInterestRate};
-pub use liquidation::LiquidationEngine;
+pub use liquidation::{LiquidationEngine, LiquidationOutcome};
 pub use market::LendingMarket;
-pub use oracle::SimplePriceOracle;
+pub use oracle::{PriceSnapshot, SimplePriceOracle};
 pub use pool::{LendingPool, ReserveData};
+pub use wrfcoin_defi_common::types::LiquidationEvent;
 pub use wire::{
     DecimalString, LendingAccountId, LendingWirePositionV0, RiskBps,
     WireSchemaError, LENDING_INTERFACE_V0,

@@ -16,4 +16,7 @@ pub use privacy::{
     RewardSelectiveDisclosureAdapter, RewardShieldingAdapter, SelectiveDisclosureRequest,
     ShieldedRewardBatchRef,
 };
-pub use types::{Address, Amount, AssetId, PoolId, Price, Timestamp, UtilitySignalSnapshot};
+pub use types::{
+    Address, Amount, AssetId, LiquidationEvent, PoolId, Price, Timestamp,
+    UtilitySignalSnapshot,
+};

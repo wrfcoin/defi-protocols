@@ -4,23 +4,59 @@ use wrfcoin_defi_common::error::{DefiError, DefiResult};
 use wrfcoin_defi_common::traits::PriceOracle;
 use wrfcoin_defi_common::types::{Address, Amount, AssetId};
 
+pub const MAX_SAFE_LTV_BPS: u64 = 9_000;
+pub const MAX_LIQUIDATION_THRESHOLD_BPS: u64 = 10_000;
+
+/// Risk configuration for a collateral asset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollateralConfig {
+    pub max_ltv_bps: u64,
+    pub liquidation_threshold_bps: u64,
+}
+
+impl CollateralConfig {
+    pub fn new(max_ltv_bps: u64, liquidation_threshold_bps: u64) -> DefiResult<Self> {
+        if max_ltv_bps == 0 || max_ltv_bps > MAX_SAFE_LTV_BPS {
+            return Err(DefiError::InvalidAmount {
+                reason: format!("max LTV must be between 1 and {MAX_SAFE_LTV_BPS} bps"),
+            });
+        }
+
+        if liquidation_threshold_bps == 0
+            || liquidation_threshold_bps > MAX_LIQUIDATION_THRESHOLD_BPS
+        {
+            return Err(DefiError::InvalidAmount {
+                reason: format!(
+                    "liquidation threshold must be between 1 and {MAX_LIQUIDATION_THRESHOLD_BPS} bps"
+                ),
+            });
+        }
+
+        if liquidation_threshold_bps < max_ltv_bps {
+            return Err(DefiError::InvalidAmount {
+                reason: "liquidation threshold must be >= max LTV".into(),
+            });
+        }
+
+        Ok(Self {
+            max_ltv_bps,
+            liquidation_threshold_bps,
+        })
+    }
+}
+
 /// A single collateral position for one asset.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CollateralPosition {
-    /// The asset pledged as collateral.
     pub asset: AssetId,
-    /// Amount of the asset deposited.
     pub amount: Amount,
-    /// Loan-to-value ratio in basis points (e.g., 7500 = 75%).
-    pub ltv_ratio_bps: u64,
+    pub config: CollateralConfig,
 }
 
 /// Manages collateral positions for all borrowers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollateralManager {
-    /// Positions keyed by borrower address.
-    pub positions: HashMap<Address, Vec<CollateralPosition>>,
-    /// Outstanding debt per (borrower, asset).
+    pub positions: HashMap<Address, HashMap<AssetId, CollateralPosition>>,
     pub debts: HashMap<(Address, AssetId), Amount>,
 }
 
@@ -32,13 +68,12 @@ impl CollateralManager {
         }
     }
 
-    /// Add collateral for a borrower.
     pub fn add_collateral(
         &mut self,
         borrower: Address,
         asset: AssetId,
         amount: Amount,
-        ltv_ratio_bps: u64,
+        config: CollateralConfig,
     ) -> DefiResult<()> {
         if amount.is_zero() {
             return Err(DefiError::InvalidAmount {
@@ -47,24 +82,25 @@ impl CollateralManager {
         }
 
         let positions = self.positions.entry(borrower).or_default();
-
-        // If position for this asset already exists, increase its amount.
-        if let Some(pos) = positions.iter_mut().find(|p| p.asset == asset) {
+        if let Some(pos) = positions.get_mut(&asset) {
             pos.amount = pos.amount.checked_add(amount).ok_or(DefiError::Overflow {
                 operation: "add_collateral".into(),
             })?;
+            pos.config = config;
         } else {
-            positions.push(CollateralPosition {
-                asset,
-                amount,
-                ltv_ratio_bps,
-            });
+            positions.insert(
+                asset.clone(),
+                CollateralPosition {
+                    asset,
+                    amount,
+                    config,
+                },
+            );
         }
 
         Ok(())
     }
 
-    /// Remove collateral for a borrower. Fails if it would make the position unhealthy.
     pub fn remove_collateral(
         &mut self,
         borrower: Address,
@@ -85,8 +121,7 @@ impl CollateralManager {
             })?;
 
         let pos = positions
-            .iter_mut()
-            .find(|p| p.asset == *asset)
+            .get_mut(asset)
             .ok_or_else(|| DefiError::InvalidAsset {
                 asset_id: asset.clone(),
             })?;
@@ -102,20 +137,16 @@ impl CollateralManager {
             operation: "remove_collateral".into(),
         })?;
 
-        // Clean up zero-amount positions.
         if pos.amount.is_zero() {
-            positions.retain(|p| !p.amount.is_zero());
+            positions.remove(asset);
+        }
+        if positions.is_empty() {
+            self.positions.remove(&borrower);
         }
 
         Ok(())
     }
 
-    /// Calculate the health factor for a borrower in basis points.
-    ///
-    /// health_factor = (sum of collateral_value * ltv) / total_debt_value
-    /// Returns 10_000 (100%) as the liquidation threshold boundary.
-    /// A value below 10_000 means the position is liquidatable.
-    /// Returns u64::MAX if the borrower has no debt.
     pub fn get_health_factor(
         &self,
         borrower: &Address,
@@ -123,20 +154,18 @@ impl CollateralManager {
     ) -> DefiResult<u64> {
         let positions = match self.positions.get(borrower) {
             Some(p) => p,
-            None => return Ok(u64::MAX), // No collateral, no debt => healthy
+            None => return Ok(u64::MAX),
         };
 
-        // Sum weighted collateral value.
         let mut weighted_collateral_value: u128 = 0;
-        for pos in positions {
+        for pos in positions.values() {
             let price = oracle.get_price(&pos.asset)?;
             let value = price.apply(pos.amount).ok_or(DefiError::Overflow {
                 operation: "health_factor collateral valuation".into(),
             })?;
-            // value * ltv / 10_000
             let weighted = value
                 .0
-                .checked_mul(pos.ltv_ratio_bps as u128)
+                .checked_mul(pos.config.max_ltv_bps as u128)
                 .ok_or(DefiError::Overflow {
                     operation: "health_factor weighting".into(),
                 })?;
@@ -147,7 +176,6 @@ impl CollateralManager {
                 })?;
         }
 
-        // Sum total debt value.
         let mut total_debt_value: u128 = 0;
         for ((addr, asset), debt_amount) in &self.debts {
             if addr != borrower {
@@ -168,14 +196,7 @@ impl CollateralManager {
             return Ok(u64::MAX);
         }
 
-        // health_factor_bps = weighted_collateral_value / total_debt_value
-        // (weighted_collateral_value is already scaled by ltv_bps, so divide by 10_000 * debt)
-        // Actually: hf = (sum(col_val * ltv_bps)) / (total_debt * 10_000)
-        let hf = weighted_collateral_value
-            .checked_div(total_debt_value)
-            .unwrap_or(0);
-
-        Ok(hf as u64)
+        Ok(weighted_collateral_value.checked_div(total_debt_value).unwrap_or(0) as u64)
     }
 }
 
@@ -189,11 +210,11 @@ impl Default for CollateralManager {
 mod tests {
     use super::*;
     use crate::oracle::SimplePriceOracle;
-    use wrfcoin_defi_common::types::Price;
+    use wrfcoin_defi_common::types::{Price, Timestamp};
 
     fn addr(n: u8) -> Address {
         let mut bytes = [0u8; 32];
-        bytes[0] = n;
+        bytes[31] = n;
         Address::from_bytes(bytes)
     }
 
@@ -201,44 +222,71 @@ mod tests {
         AssetId::new(name)
     }
 
+    fn config(max_ltv_bps: u64, liquidation_threshold_bps: u64) -> CollateralConfig {
+        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps).unwrap()
+    }
+
+    #[test]
+    fn test_config_rejects_out_of_bounds_ltv() {
+        let result = CollateralConfig::new(MAX_SAFE_LTV_BPS + 1, 9_500);
+        assert!(matches!(result, Err(DefiError::InvalidAmount { .. })));
+    }
+
+    #[test]
+    fn test_config_rejects_threshold_below_ltv() {
+        let result = CollateralConfig::new(7_500, 7_000);
+        assert!(matches!(result, Err(DefiError::InvalidAmount { .. })));
+    }
+
     #[test]
     fn test_add_collateral() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), config(7_500, 8_000))
+            .unwrap();
         let positions = &cm.positions[&addr(1)];
         assert_eq!(positions.len(), 1);
-        assert_eq!(positions[0].amount, Amount::new(1000));
+        assert_eq!(positions[&asset("ETH")].amount, Amount::new(1000));
     }
 
     #[test]
     fn test_add_collateral_same_asset_merges() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(500), 7500).unwrap();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(300), 7500).unwrap();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(500), config(7_500, 8_000))
+            .unwrap();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(300), config(7_500, 8_000))
+            .unwrap();
         let positions = &cm.positions[&addr(1)];
         assert_eq!(positions.len(), 1);
-        assert_eq!(positions[0].amount, Amount::new(800));
+        assert_eq!(positions[&asset("ETH")].amount, Amount::new(800));
     }
 
     #[test]
     fn test_add_collateral_zero_fails() {
         let mut cm = CollateralManager::new();
-        let result = cm.add_collateral(addr(1), asset("ETH"), Amount::ZERO, 7500);
+        let result = cm.add_collateral(
+            addr(1),
+            asset("ETH"),
+            Amount::ZERO,
+            config(7_500, 8_000),
+        );
         assert!(result.is_err());
     }
 
     #[test]
     fn test_remove_collateral() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
-        cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(400)).unwrap();
-        assert_eq!(cm.positions[&addr(1)][0].amount, Amount::new(600));
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), config(7_500, 8_000))
+            .unwrap();
+        cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(400))
+            .unwrap();
+        assert_eq!(cm.positions[&addr(1)][&asset("ETH")].amount, Amount::new(600));
     }
 
     #[test]
     fn test_remove_collateral_exceeds_fails() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), 7500).unwrap();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), config(7_500, 8_000))
+            .unwrap();
         let result = cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(200));
         assert!(result.is_err());
     }
@@ -246,17 +294,20 @@ mod tests {
     #[test]
     fn test_remove_collateral_cleans_zero() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), 7500).unwrap();
-        cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(100)).unwrap();
-        assert!(cm.positions[&addr(1)].is_empty());
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), config(7_500, 8_000))
+            .unwrap();
+        cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(100))
+            .unwrap();
+        assert!(!cm.positions.contains_key(&addr(1)));
     }
 
     #[test]
     fn test_health_factor_no_debt() {
         let mut cm = CollateralManager::new();
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), config(7_500, 8_000))
+            .unwrap();
         let mut oracle = SimplePriceOracle::new();
-        oracle.set_price(asset("ETH"), Price::from_integer(1));
+        oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
         assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), u64::MAX);
     }
 
@@ -270,19 +321,14 @@ mod tests {
     #[test]
     fn test_health_factor_with_debt() {
         let mut cm = CollateralManager::new();
-        // Collateral: 1000 ETH at price 2, LTV 75%
-        cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), 7500).unwrap();
-        // Debt: 500 USDC at price 1
-        cm.debts.insert((addr(1), asset("USDC")), Amount::new(500));
+        cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), config(7_500, 8_000))
+            .unwrap();
+        cm.debts.insert((addr(1), asset("USDC")), Amount::new(50));
 
         let mut oracle = SimplePriceOracle::new();
-        oracle.set_price(asset("ETH"), Price::from_integer(2));
-        oracle.set_price(asset("USDC"), Price::from_integer(1));
+        oracle.set_price_at(asset("ETH"), Price::from_integer(2), Timestamp::new(1));
+        oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
 
-        let hf = cm.get_health_factor(&addr(1), &oracle).unwrap();
-        // weighted_collateral = 1000 * 2 * 7500 = 15_000_000
-        // debt = 500 * 1 = 500
-        // hf = 15_000_000 / 500 = 30_000
-        assert_eq!(hf, 30_000);
+        assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), 30_000);
     }
 }
