@@ -36,6 +36,18 @@ pub enum DefiError {
 
     #[error("arithmetic overflow in {operation}")]
     Overflow { operation: String },
+
+    #[error("duplicate compute receipt: {receipt_id}")]
+    DuplicateComputeReceipt { receipt_id: String },
+
+    #[error("invalid compute receipt: {reason}")]
+    InvalidComputeReceipt { reason: String },
+
+    #[error("compute credit abuse detected: {reason}")]
+    ComputeCreditAbuse { reason: String },
+
+    #[error("insufficient reserved balance: required {required}, available {available}")]
+    InsufficientReservedBalance { required: Amount, available: Amount },
 }
 
 /// Convenience alias for DeFi results.
