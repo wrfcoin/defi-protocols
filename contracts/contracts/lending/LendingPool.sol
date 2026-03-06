@@ -30,6 +30,9 @@ contract LendingPool is ReentrancyGuard {
     /// @notice Health factor threshold below which a position is liquidatable
     uint256 public constant LIQUIDATION_THRESHOLD = 1e18; // 1.0
 
+    /// @notice Maximum number of unique assets a user can deposit or borrow
+    uint256 public constant MAX_USER_ASSETS = 20;
+
     // -----------------------------------------------------------------------
     // State
     // -----------------------------------------------------------------------
@@ -92,6 +95,7 @@ contract LendingPool is ReentrancyGuard {
     error HealthFactorTooLow();
     error PositionHealthy();
     error NoBorrowToLiquidate();
+    error TooManyAssets();
 
     // -----------------------------------------------------------------------
     // External — Core operations
@@ -109,6 +113,7 @@ contract LendingPool is ReentrancyGuard {
         reserves[asset] += amount;
 
         if (!_hasDeposit[msg.sender][asset]) {
+            if (_userDepositAssets[msg.sender].length >= MAX_USER_ASSETS) revert TooManyAssets();
             _hasDeposit[msg.sender][asset] = true;
             _userDepositAssets[msg.sender].push(asset);
         }
@@ -151,6 +156,7 @@ contract LendingPool is ReentrancyGuard {
         reserves[asset] -= amount;
 
         if (!_hasBorrow[msg.sender][asset]) {
+            if (_userBorrowAssets[msg.sender].length >= MAX_USER_ASSETS) revert TooManyAssets();
             _hasBorrow[msg.sender][asset] = true;
             _userBorrowAssets[msg.sender].push(asset);
         }
