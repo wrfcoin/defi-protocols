@@ -22,6 +22,9 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @notice Precision scalar for accumulated reward calculations
     uint256 public constant ACC_REWARD_PRECISION = 1e18;
 
+    /// @notice Maximum number of pools to prevent unbounded iteration in setRewardPerSecond
+    uint256 public constant MAX_POOLS = 100;
+
     // -----------------------------------------------------------------------
     // Types
     // -----------------------------------------------------------------------
@@ -93,6 +96,7 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     error ZeroAmount();
     error InsufficientStake();
     error InvalidPool();
+    error TooManyPools();
 
     // -----------------------------------------------------------------------
     // Constructor
@@ -119,6 +123,7 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @param _allocPoint Allocation points for the new pool
     /// @param _lpToken The LP token that the pool accepts
     function addPool(uint256 _allocPoint, IERC20 _lpToken) external onlyOwner {
+        if (poolInfo.length >= MAX_POOLS) revert TooManyPools();
         totalAllocPoint += _allocPoint;
 
         poolInfo.push(
