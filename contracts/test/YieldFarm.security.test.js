@@ -50,16 +50,21 @@ describe('security(gas-limit): YieldFarm MAX_POOLS limit', function () {
       .to.be.revertedWithCustomError(farm, 'TooManyPools');
   });
 
-  it('setRewardPerSecond completes within gas limits with 50 pools', async function () {
+  it('executeRewardPerSecond completes within gas limits with 50 pools', async function () {
     const { farm, MockERC20 } = await loadFixture(deployFarmFixture);
+    const { time } = require('@nomicfoundation/hardhat-network-helpers');
 
     for (let i = 0; i < 50; i++) {
       const lp = await MockERC20.deploy(`LP${i}`, `LP${i}`);
       await farm.addPool(10, await lp.getAddress());
     }
 
+    // Queue and wait for timelock
+    await farm.queueRewardPerSecond(ethers.parseEther('2'));
+    await time.increase(48 * 3600);
+
     // Should succeed without hitting gas limit
-    const tx = await farm.setRewardPerSecond(ethers.parseEther('2'));
+    const tx = await farm.executeRewardPerSecond();
     const receipt = await tx.wait();
 
     expect(receipt.status).to.equal(1);
