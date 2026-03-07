@@ -85,6 +85,9 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @notice Whether there is a pending emission change in the queue
     bool public hasPendingRewardChange;
 
+    /// @notice Tracks whether an LP token address has already been registered as a pool
+    mapping(address => bool) public isPoolToken;
+
     // -----------------------------------------------------------------------
     // Events
     // -----------------------------------------------------------------------
@@ -152,6 +155,9 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @param _lpToken The LP token that the pool accepts
     function addPool(uint256 _allocPoint, IERC20 _lpToken) external onlyOwner {
         if (poolInfo.length >= MAX_POOLS) revert TooManyPools();
+        require(!isPoolToken[address(_lpToken)], "Duplicate pool token");
+
+        isPoolToken[address(_lpToken)] = true;
         totalAllocPoint += _allocPoint;
 
         poolInfo.push(
