@@ -232,7 +232,7 @@ mod tests {
     }
 
     fn config(max_ltv_bps: u64, liquidation_threshold_bps: u64) -> CollateralConfig {
-        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps).unwrap()
+        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps).expect("test collateral config should be valid")
     }
 
     fn setup_market() -> LendingMarket {
@@ -253,20 +253,20 @@ mod tests {
         let mut market = setup_market();
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(1), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(1_000), ts(2))
-            .unwrap();
+            .expect("market operation should succeed");
 
         assert_eq!(
             market.collateral.debts[&(addr(2), asset("USDC"))],
             Amount::new(1_000)
         );
         assert_eq!(
-            market.pool.available_liquidity(&asset("USDC")).unwrap(),
+            market.pool.available_liquidity(&asset("USDC")).expect("available_liquidity should succeed"),
             Amount::new(99_000)
         );
     }
@@ -277,10 +277,10 @@ mod tests {
 
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(1), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
 
         let result = market.borrow(addr(2), asset("USDC"), Amount::new(2_000), ts(2));
         assert!(result.is_err());
@@ -295,16 +295,16 @@ mod tests {
         let mut market = setup_market();
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(1), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(1_000), ts(2))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .repay(addr(2), asset("USDC"), Amount::new(500), ts(3))
-            .unwrap();
+            .expect("market operation should succeed");
 
         assert_eq!(
             market.collateral.debts[&(addr(2), asset("USDC"))],
@@ -321,16 +321,16 @@ mod tests {
         let mut market = setup_market();
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(1), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(1_000), ts(2))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .repay(addr(2), asset("USDC"), Amount::new(1_000), ts(3))
-            .unwrap();
+            .expect("market operation should succeed");
 
         assert!(!market.collateral.debts.contains_key(&(addr(2), asset("USDC"))));
         assert_eq!(
@@ -344,13 +344,13 @@ mod tests {
         let mut market = setup_market();
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(500), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(1_000), ts(2))
-            .unwrap();
+            .expect("market operation should succeed");
 
         market
             .oracle
@@ -365,7 +365,7 @@ mod tests {
                 Amount::new(200),
                 ts(3),
             )
-            .unwrap();
+            .expect("market operation should succeed");
 
         assert_eq!(event.collateral_seized, Amount::new(210));
         assert_eq!(event.debt_repaid, Amount::new(200));
@@ -381,19 +381,19 @@ mod tests {
         let mut market = setup_market();
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(0))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(100), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(50_000), ts(0))
-            .unwrap();
+            .expect("market operation should succeed");
 
         let borrows_before = market.pool.reserves[&asset("USDC")].total_borrows;
         assert_eq!(borrows_before, Amount::new(50_000));
 
         let one_year = 365 * 24 * 3600;
-        market.accrue_interest(&asset("USDC"), ts(one_year)).unwrap();
+        market.accrue_interest(&asset("USDC"), ts(one_year)).expect("accrue_interest should succeed");
 
         let borrows_after = market.pool.reserves[&asset("USDC")].total_borrows;
         assert_eq!(borrows_after, Amount::new(52_250));
@@ -404,13 +404,13 @@ mod tests {
         let mut market = setup_market();
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
 
         let fee = market
             .flash_loan(&asset("USDC"), Amount::new(50_000), ts(2), |_borrowed| {
                 Ok(Amount::new(50_045))
             })
-            .unwrap();
+            .expect("market operation should succeed");
 
         assert_eq!(fee, Amount::new(45));
         assert_eq!(
@@ -422,7 +422,7 @@ mod tests {
     #[test]
     fn test_health_factor_no_debt() {
         let market = setup_market();
-        assert_eq!(market.health_factor(&addr(1)).unwrap(), u64::MAX);
+        assert_eq!(market.health_factor(&addr(1)).expect("health_factor should succeed"), u64::MAX);
     }
 
     #[test]
@@ -431,10 +431,10 @@ mod tests {
         market.set_max_price_age_secs(5);
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(1), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
 
         let result = market.borrow(addr(2), asset("USDC"), Amount::new(100), ts(10));
         assert!(matches!(result, Err(DefiError::OracleError { .. })));
@@ -452,10 +452,10 @@ mod tests {
             .set_price_at(asset("ETH"), Price::from_integer(2_000), ts(9));
         market
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
-            .unwrap();
+            .expect("market operation should succeed");
         market
             .add_collateral(addr(2), asset("ETH"), Amount::new(1), config(7_500, 8_000))
-            .unwrap();
+            .expect("market operation should succeed");
 
         assert!(market
             .borrow(addr(2), asset("USDC"), Amount::new(100), ts(10))

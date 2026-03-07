@@ -241,7 +241,7 @@ mod tests {
         let addr = address(0x2a);
         let wire = LendingAccountId::from_address(addr);
 
-        assert_eq!(wire.to_address().unwrap(), addr);
+        assert_eq!(wire.to_address().expect("round-trip address decode should succeed"), addr);
         assert_eq!(wire.0.len(), ACCOUNT_PREFIX.len() + ADDRESS_HEX_LEN);
     }
 
@@ -267,18 +267,18 @@ mod tests {
     fn serde_round_trip_preserves_wire_schema() {
         let payload = LendingWirePositionV0::new(
             LendingAccountId::from_address(address(0x44)),
-            DecimalString::new("1000.50").unwrap(),
-            DecimalString::new("1500.75").unwrap(),
-            DecimalString::new("1.2500").unwrap(),
-            RiskBps::new(6500).unwrap(),
-            RiskBps::new(8000).unwrap(),
-            RiskBps::new(500).unwrap(),
+            DecimalString::new("1000.50").expect("valid decimal string"),
+            DecimalString::new("1500.75").expect("valid decimal string"),
+            DecimalString::new("1.2500").expect("valid decimal string"),
+            RiskBps::new(6500).expect("valid risk bps"),
+            RiskBps::new(8000).expect("valid risk bps"),
+            RiskBps::new(500).expect("valid risk bps"),
         );
 
-        let json = serde_json::to_string(&payload).unwrap();
-        let round_trip: LendingWirePositionV0 = serde_json::from_str(&json).unwrap();
+        let json = serde_json::to_string(&payload).expect("serialization should succeed");
+        let round_trip: LendingWirePositionV0 = serde_json::from_str(&json).expect("deserialization should succeed");
 
-        round_trip.validate().unwrap();
+        round_trip.validate().expect("round-tripped payload should be valid");
         assert_eq!(round_trip, payload);
     }
 
@@ -313,12 +313,12 @@ mod tests {
     fn validate_rejects_invalid_risk_relationships() {
         let payload = LendingWirePositionV0::new(
             LendingAccountId::from_address(address(0x55)),
-            DecimalString::new("100").unwrap(),
-            DecimalString::new("150").unwrap(),
-            DecimalString::new("1.5").unwrap(),
-            RiskBps::new(7000).unwrap(),
-            RiskBps::new(6500).unwrap(),
-            RiskBps::new(500).unwrap(),
+            DecimalString::new("100").expect("valid decimal string"),
+            DecimalString::new("150").expect("valid decimal string"),
+            DecimalString::new("1.5").expect("valid decimal string"),
+            RiskBps::new(7000).expect("valid risk bps"),
+            RiskBps::new(6500).expect("valid risk bps"),
+            RiskBps::new(500).expect("valid risk bps"),
         );
 
         assert!(matches!(

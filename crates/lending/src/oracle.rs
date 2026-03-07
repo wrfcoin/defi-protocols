@@ -94,7 +94,7 @@ mod tests {
         let mut oracle = SimplePriceOracle::new();
         let wrf = AssetId::new("WRF");
         oracle.set_price_at(wrf.clone(), Price::new(2, 1), Timestamp::new(42));
-        let snapshot = oracle.get_snapshot(&wrf).unwrap();
+        let snapshot = oracle.get_snapshot(&wrf).expect("snapshot should exist after set_price_at");
         assert_eq!(snapshot.price, Price::new(2, 1));
         assert_eq!(snapshot.updated_at, Timestamp::new(42));
     }
@@ -121,7 +121,7 @@ mod tests {
         let mut oracle = SimplePriceOracle::new();
         oracle.set_price_at(AssetId::new("A"), Price::new(1, 1), Timestamp::new(1));
         oracle.set_price_at(AssetId::new("B"), Price::new(2, 1), Timestamp::new(1));
-        let prices = oracle.get_prices(&[AssetId::new("A"), AssetId::new("B")]).unwrap();
+        let prices = oracle.get_prices(&[AssetId::new("A"), AssetId::new("B")]).expect("batch price lookup should succeed for known assets");
         assert_eq!(prices.len(), 2);
     }
 

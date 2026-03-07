@@ -102,7 +102,7 @@ mod tests {
     fn setup_pool() -> LendingPool {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(10_000), ts(1)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(10_000), ts(1)).expect("initial deposit should succeed");
         pool
     }
 
@@ -122,7 +122,7 @@ mod tests {
                 Ok(Amount::new(1_001))
             },
         )
-        .unwrap();
+        .expect("flash loan should succeed");
 
         // Fee = 1000 * 9 / 10000 = 0 (integer truncation at small amounts)
         assert_eq!(fee, Amount::new(0));
@@ -138,7 +138,7 @@ mod tests {
         let mut pool = setup_pool();
         let loan_amount = Amount::new(100_000_0); // 1M units
         // First add more liquidity
-        pool.deposit(&asset("WRF"), Amount::new(990_000_0), ts(2)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(990_000_0), ts(2)).expect("additional deposit should succeed");
         // Pool now has 10M
 
         let fee = execute_flash_loan(
@@ -152,7 +152,7 @@ mod tests {
                 Ok(Amount::new(100_000_0 + 900))
             },
         )
-        .unwrap();
+        .expect("flash loan with meaningful fee should succeed");
 
         assert_eq!(fee, Amount::new(900));
     }
@@ -236,7 +236,7 @@ mod tests {
             ts(10),
             |_| Ok(Amount::new(10_500)),
         )
-        .unwrap();
+        .expect("flash loan with custom fee should succeed");
 
         assert_eq!(fee, Amount::new(500));
         // Pool: 10_000 - 10_000 + 10_500 = 10_500
