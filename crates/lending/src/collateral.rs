@@ -223,7 +223,7 @@ mod tests {
     }
 
     fn config(max_ltv_bps: u64, liquidation_threshold_bps: u64) -> CollateralConfig {
-        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps).unwrap()
+        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps).expect("test collateral config should be valid")
     }
 
     #[test]
@@ -242,7 +242,7 @@ mod tests {
     fn test_add_collateral() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), config(7_500, 8_000))
-            .unwrap();
+            .expect("add_collateral should succeed");
         let positions = &cm.positions[&addr(1)];
         assert_eq!(positions.len(), 1);
         assert_eq!(positions[&asset("ETH")].amount, Amount::new(1000));
@@ -252,9 +252,9 @@ mod tests {
     fn test_add_collateral_same_asset_merges() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(500), config(7_500, 8_000))
-            .unwrap();
+            .expect("first add_collateral should succeed");
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(300), config(7_500, 8_000))
-            .unwrap();
+            .expect("second add_collateral should merge");
         let positions = &cm.positions[&addr(1)];
         assert_eq!(positions.len(), 1);
         assert_eq!(positions[&asset("ETH")].amount, Amount::new(800));
@@ -276,9 +276,9 @@ mod tests {
     fn test_remove_collateral() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), config(7_500, 8_000))
-            .unwrap();
+            .expect("add_collateral should succeed");
         cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(400))
-            .unwrap();
+            .expect("partial removal should succeed");
         assert_eq!(cm.positions[&addr(1)][&asset("ETH")].amount, Amount::new(600));
     }
 
@@ -286,7 +286,7 @@ mod tests {
     fn test_remove_collateral_exceeds_fails() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), config(7_500, 8_000))
-            .unwrap();
+            .expect("add_collateral should succeed");
         let result = cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(200));
         assert!(result.is_err());
     }
@@ -295,9 +295,9 @@ mod tests {
     fn test_remove_collateral_cleans_zero() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), config(7_500, 8_000))
-            .unwrap();
+            .expect("add_collateral should succeed");
         cm.remove_collateral(addr(1), &asset("ETH"), Amount::new(100))
-            .unwrap();
+            .expect("full removal should succeed");
         assert!(!cm.positions.contains_key(&addr(1)));
     }
 
@@ -305,30 +305,30 @@ mod tests {
     fn test_health_factor_no_debt() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(1000), config(7_500, 8_000))
-            .unwrap();
+            .expect("add_collateral should succeed");
         let mut oracle = SimplePriceOracle::new();
         oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
-        assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), u64::MAX);
+        assert_eq!(cm.get_health_factor(&addr(1), &oracle).expect("health factor should compute"), u64::MAX);
     }
 
     #[test]
     fn test_health_factor_no_positions() {
         let cm = CollateralManager::new();
         let oracle = SimplePriceOracle::new();
-        assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), u64::MAX);
+        assert_eq!(cm.get_health_factor(&addr(1), &oracle).expect("health factor should compute for no-position user"), u64::MAX);
     }
 
     #[test]
     fn test_health_factor_with_debt() {
         let mut cm = CollateralManager::new();
         cm.add_collateral(addr(1), asset("ETH"), Amount::new(100), config(7_500, 8_000))
-            .unwrap();
+            .expect("add_collateral should succeed");
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(50));
 
         let mut oracle = SimplePriceOracle::new();
         oracle.set_price_at(asset("ETH"), Price::from_integer(2), Timestamp::new(1));
         oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
 
-        assert_eq!(cm.get_health_factor(&addr(1), &oracle).unwrap(), 30_000);
+        assert_eq!(cm.get_health_factor(&addr(1), &oracle).expect("health factor should compute with debt"), 30_000);
     }
 }
