@@ -330,7 +330,7 @@ mod tests {
     fn test_deposit() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).expect("deposit should succeed");
         assert_eq!(pool.reserves[&asset("WRF")].total_deposits, Amount::new(1000));
     }
 
@@ -353,8 +353,8 @@ mod tests {
     fn test_withdraw() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).unwrap();
-        pool.withdraw(&asset("WRF"), Amount::new(500), ts(2)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).expect("deposit should succeed");
+        pool.withdraw(&asset("WRF"), Amount::new(500), ts(2)).expect("withdraw should succeed");
         assert_eq!(pool.reserves[&asset("WRF")].total_deposits, Amount::new(500));
     }
 
@@ -362,7 +362,7 @@ mod tests {
     fn test_withdraw_exceeds_available() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(100), ts(1)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(100), ts(1)).expect("deposit should succeed");
         let result = pool.withdraw(&asset("WRF"), Amount::new(200), ts(2));
         assert!(result.is_err());
     }
@@ -371,7 +371,7 @@ mod tests {
     fn test_withdraw_zero_fails() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(100), ts(1)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(100), ts(1)).expect("deposit should succeed");
         let result = pool.withdraw(&asset("WRF"), Amount::ZERO, ts(2));
         assert!(result.is_err());
     }
@@ -380,9 +380,9 @@ mod tests {
     fn test_available_liquidity() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).unwrap();
+        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).expect("deposit should succeed");
         // Simulate borrow by modifying total_borrows directly
-        pool.reserves.get_mut(&asset("WRF")).unwrap().total_borrows = Amount::new(300);
-        assert_eq!(pool.available_liquidity(&asset("WRF")).unwrap(), Amount::new(700));
+        pool.reserves.get_mut(&asset("WRF")).expect("WRF reserve should exist").total_borrows = Amount::new(300);
+        assert_eq!(pool.available_liquidity(&asset("WRF")).expect("available_liquidity should succeed"), Amount::new(700));
     }
 }

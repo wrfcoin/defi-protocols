@@ -161,9 +161,9 @@ mod tests {
             addr(1),
             asset("ETH"),
             Amount::new(500),
-            CollateralConfig::new(7_500, 8_000).unwrap(),
+            CollateralConfig::new(7_500, 8_000).expect("valid collateral config"),
         )
-        .unwrap();
+        .expect("add_collateral should succeed");
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(600));
 
         let mut oracle = SimplePriceOracle::new();
@@ -176,7 +176,7 @@ mod tests {
     fn test_check_liquidatable() {
         let (cm, oracle) = setup_undercollateralized();
         let engine = LiquidationEngine::default();
-        assert!(engine.check_liquidatable(&addr(1), &cm, &oracle).unwrap());
+        assert!(engine.check_liquidatable(&addr(1), &cm, &oracle).expect("check_liquidatable should succeed"));
     }
 
     #[test]
@@ -186,22 +186,22 @@ mod tests {
             addr(1),
             asset("ETH"),
             Amount::new(10_000),
-            CollateralConfig::new(7_500, 8_000).unwrap(),
+            CollateralConfig::new(7_500, 8_000).expect("valid collateral config"),
         )
-        .unwrap();
+        .expect("add_collateral should succeed");
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(1));
         let mut oracle = SimplePriceOracle::new();
         oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
         oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
 
         let engine = LiquidationEngine::default();
-        assert!(!engine.check_liquidatable(&addr(1), &cm, &oracle).unwrap());
+        assert!(!engine.check_liquidatable(&addr(1), &cm, &oracle).expect("check_liquidatable should succeed"));
     }
 
     #[test]
     fn test_calculate_liquidation_amount() {
         let engine = LiquidationEngine::default();
-        let max = engine.calculate_liquidation_amount(Amount::new(1000)).unwrap();
+        let max = engine.calculate_liquidation_amount(Amount::new(1000)).expect("liquidation amount calculation should succeed");
         assert_eq!(max, Amount::new(500));
     }
 
@@ -214,7 +214,7 @@ mod tests {
 
         let reward = engine
             .calculate_collateral_reward(Amount::new(100), &asset("USDC"), &asset("ETH"), &oracle)
-            .unwrap();
+            .expect("collateral reward calculation should succeed");
         assert_eq!(reward, Amount::new(52));
     }
 
@@ -233,7 +233,7 @@ mod tests {
                 &mut cm,
                 &oracle,
             )
-            .unwrap();
+            .expect("liquidation should succeed for undercollateralized position");
 
         assert_eq!(cm.debts[&(addr(1), asset("USDC"))], Amount::new(400));
         assert_eq!(outcome.collateral_seized, Amount::new(210));
@@ -247,9 +247,9 @@ mod tests {
             addr(1),
             asset("ETH"),
             Amount::new(10_000),
-            CollateralConfig::new(7_500, 8_000).unwrap(),
+            CollateralConfig::new(7_500, 8_000).expect("valid collateral config"),
         )
-        .unwrap();
+        .expect("add_collateral should succeed");
         cm.debts.insert((addr(1), asset("USDC")), Amount::new(1));
         let mut oracle = SimplePriceOracle::new();
         oracle.set_price_at(asset("ETH"), Price::from_integer(1), Timestamp::new(1));
