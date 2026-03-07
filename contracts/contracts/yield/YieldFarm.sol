@@ -22,8 +22,14 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @notice Precision scalar for accumulated reward calculations
     uint256 public constant ACC_REWARD_PRECISION = 1e18;
 
-    /// @notice Maximum number of pools to prevent unbounded iteration in setRewardPerSecond
+    /// @notice Maximum number of pools to prevent unbounded iteration
     uint256 public constant MAX_POOLS = 100;
+
+    /// @notice Timelock delay before a queued emission change can be executed
+    uint256 public constant EMISSION_TIMELOCK = 48 hours;
+
+    /// @notice Expiry window after which a queued emission change is no longer valid
+    uint256 public constant EMISSION_EXPIRY = 7 days;
 
     // -----------------------------------------------------------------------
     // Types
@@ -70,6 +76,15 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @notice Mapping of pool ID => user address => user info
     mapping(uint256 pid => mapping(address user => UserInfo)) public userInfo;
 
+    /// @notice The pending reward-per-second value awaiting execution
+    uint256 public pendingRewardPerSecond;
+
+    /// @notice Timestamp when the pending emission change was queued
+    uint256 public rewardChangeQueuedAt;
+
+    /// @notice Whether there is a pending emission change in the queue
+    bool public hasPendingRewardChange;
+
     // -----------------------------------------------------------------------
     // Events
     // -----------------------------------------------------------------------
@@ -89,6 +104,15 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     /// @notice Emitted when a pool's allocation points are updated
     event PoolUpdated(uint256 indexed pid, uint256 allocPoint);
 
+    /// @notice Emitted when an emission rate change is queued
+    event EmissionChangeQueued(uint256 newRewardPerSecond, uint256 executeAfter);
+
+    /// @notice Emitted when a queued emission rate change is executed
+    event EmissionChangeExecuted(uint256 oldRewardPerSecond, uint256 newRewardPerSecond);
+
+    /// @notice Emitted when a queued emission rate change is cancelled
+    event EmissionChangeCancelled(uint256 cancelledRewardPerSecond);
+
     // -----------------------------------------------------------------------
     // Errors
     // -----------------------------------------------------------------------
@@ -97,6 +121,10 @@ contract YieldFarm is ReentrancyGuard, Ownable {
     error InsufficientStake();
     error InvalidPool();
     error TooManyPools();
+    error NoPendingRewardChange();
+    error TimelockNotElapsed();
+    error TimelockExpired();
+    error RewardChangeAlreadyQueued();
 
     // -----------------------------------------------------------------------
     // Constructor
@@ -153,15 +181,52 @@ contract YieldFarm is ReentrancyGuard, Ownable {
         emit PoolUpdated(_pid, _allocPoint);
     }
 
-    /// @notice Update the reward emission rate
+    /// @notice Queue a new reward emission rate (subject to timelock)
     /// @param _rewardPerSecond The new reward tokens per second
-    function setRewardPerSecond(uint256 _rewardPerSecond) external onlyOwner {
+    function queueRewardPerSecond(uint256 _rewardPerSecond) external onlyOwner {
+        if (hasPendingRewardChange) revert RewardChangeAlreadyQueued();
+
+        pendingRewardPerSecond = _rewardPerSecond;
+        rewardChangeQueuedAt = block.timestamp;
+        hasPendingRewardChange = true;
+
+        emit EmissionChangeQueued(_rewardPerSecond, block.timestamp + EMISSION_TIMELOCK);
+    }
+
+    /// @notice Execute a previously queued emission rate change after the timelock has elapsed
+    function executeRewardPerSecond() external onlyOwner {
+        if (!hasPendingRewardChange) revert NoPendingRewardChange();
+        if (block.timestamp < rewardChangeQueuedAt + EMISSION_TIMELOCK) revert TimelockNotElapsed();
+        if (block.timestamp > rewardChangeQueuedAt + EMISSION_TIMELOCK + EMISSION_EXPIRY) revert TimelockExpired();
+
         // Update all pools before changing the rate
         uint256 length = poolInfo.length;
         for (uint256 i = 0; i < length; i++) {
             _updatePool(i);
         }
-        rewardPerSecond = _rewardPerSecond;
+
+        uint256 oldRate = rewardPerSecond;
+        rewardPerSecond = pendingRewardPerSecond;
+
+        // Clear the pending change
+        hasPendingRewardChange = false;
+        pendingRewardPerSecond = 0;
+        rewardChangeQueuedAt = 0;
+
+        emit EmissionChangeExecuted(oldRate, rewardPerSecond);
+    }
+
+    /// @notice Cancel a previously queued emission rate change
+    function cancelRewardPerSecond() external onlyOwner {
+        if (!hasPendingRewardChange) revert NoPendingRewardChange();
+
+        uint256 cancelled = pendingRewardPerSecond;
+
+        hasPendingRewardChange = false;
+        pendingRewardPerSecond = 0;
+        rewardChangeQueuedAt = 0;
+
+        emit EmissionChangeCancelled(cancelled);
     }
 
     // -----------------------------------------------------------------------
