@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
@@ -12,7 +12,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///         at a configurable rate per second, weighted by allocation points.
 /// @dev Reward distribution follows the standard "accumulated reward per share"
 ///      pattern. The owner can add pools and adjust allocation points.
-contract YieldFarm is ReentrancyGuard, Ownable {
+contract YieldFarm is ReentrancyGuard, Ownable2Step {
     using SafeERC20 for IERC20;
 
     // -----------------------------------------------------------------------
