@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::num::TryFromIntError;
 use std::ops::{Add, Sub};
 
 /// Unique identifier for an asset within the DeFi system.
@@ -21,6 +22,10 @@ impl fmt::Display for AssetId {
         write!(f, "{}", self.0)
     }
 }
+
+/// Base units per WRF coin, matching core4's `WRF_UNITS_PER_COIN` (PR #505).
+/// 1 WRF = 10^8 base units. All on-chain amounts are denominated in base units.
+pub const WRF_UNITS_PER_COIN: u128 = 100_000_000;
 
 /// Token amount represented as a u128 to support large values without floating point.
 /// All amounts are in the smallest denomination (e.g., wei for ETH-like tokens).
@@ -87,6 +92,22 @@ impl Sub for Amount {
 impl fmt::Display for Amount {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl From<u64> for Amount {
+    fn from(value: u64) -> Self {
+        Self(value as u128)
+    }
+}
+
+impl TryFrom<Amount> for u64 {
+    type Error = TryFromIntError;
+
+    /// Convert to u64, returning an error if the value exceeds `u64::MAX`.
+    /// Use this when crossing the DeFi (u128) ↔ core4 (u64) boundary.
+    fn try_from(amount: Amount) -> Result<u64, TryFromIntError> {
+        u64::try_from(amount.0)
     }
 }
 
@@ -529,6 +550,40 @@ mod tests {
         let signal = UtilitySignalSnapshot::default();
         assert_eq!(signal.composite_usefulness_bps(), 5_000);
         assert_eq!(signal.verified_event_ratio_bps(), 5_000);
+    }
+
+    #[test]
+    fn test_wrf_units_per_coin() {
+        assert_eq!(WRF_UNITS_PER_COIN, 100_000_000);
+        // 1 WRF coin in base units
+        let one_coin = Amount::new(WRF_UNITS_PER_COIN);
+        assert_eq!(one_coin.0, 100_000_000);
+    }
+
+    #[test]
+    fn test_amount_from_u64() {
+        let a: Amount = Amount::from(42u64);
+        assert_eq!(a.0, 42);
+        let b: Amount = Amount::from(u64::MAX);
+        assert_eq!(b.0, u64::MAX as u128);
+    }
+
+    #[test]
+    fn test_amount_try_into_u64() {
+        let small = Amount::new(12345);
+        let val: u64 = small.try_into().unwrap();
+        assert_eq!(val, 12345);
+
+        let max = Amount::new(u64::MAX as u128);
+        let val: u64 = max.try_into().unwrap();
+        assert_eq!(val, u64::MAX);
+    }
+
+    #[test]
+    fn test_amount_try_into_u64_overflow() {
+        let too_big = Amount::new(u64::MAX as u128 + 1);
+        let result: Result<u64, _> = too_big.try_into();
+        assert!(result.is_err());
     }
 
     #[test]
