@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IWrfAMM} from "../interfaces/IWrfAMM.sol";
 
 /// @title AMMRouter
 /// @notice An automated market maker router for the WRFCoin DeFi protocol.
@@ -11,7 +12,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///         Supports adding/removing liquidity and token swaps.
 /// @dev Pair ordering is canonical (sorted by address) to avoid duplicate pools.
 ///      LP shares are tracked internally rather than via a separate ERC20 token.
-contract AMMRouter is ReentrancyGuard {
+contract AMMRouter is ReentrancyGuard, IWrfAMM {
     using SafeERC20 for IERC20;
 
     // -----------------------------------------------------------------------
@@ -52,42 +53,6 @@ contract AMMRouter is ReentrancyGuard {
 
     /// @notice LP share balances: pairKey => provider => shares
     mapping(bytes32 pairKey => mapping(address provider => uint256 shares)) public lpBalances;
-
-    // -----------------------------------------------------------------------
-    // Events
-    // -----------------------------------------------------------------------
-
-    /// @notice Emitted when liquidity is added to a pool
-    event LiquidityAdded(
-        address indexed provider,
-        address indexed tokenA,
-        address indexed tokenB,
-        uint256 amountA,
-        uint256 amountB,
-        uint256 liquidity
-    );
-
-    /// @notice Emitted when liquidity is removed from a pool
-    event LiquidityRemoved(
-        address indexed provider,
-        address indexed tokenA,
-        address indexed tokenB,
-        uint256 amountA,
-        uint256 amountB,
-        uint256 liquidity
-    );
-
-    /// @notice Emitted when a new pair is created with a specific fee tier
-    event PairCreated(address indexed token0, address indexed token1, uint24 feeBps);
-
-    /// @notice Emitted when a token swap is executed
-    event Swapped(
-        address indexed user,
-        address indexed tokenIn,
-        address indexed tokenOut,
-        uint256 amountIn,
-        uint256 amountOut
-    );
 
     // -----------------------------------------------------------------------
     // Errors
