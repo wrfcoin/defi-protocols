@@ -18,11 +18,11 @@ contract AMMRouter is ReentrancyGuard {
     // Constants
     // -----------------------------------------------------------------------
 
-    /// @notice Fee numerator — 0.3% fee means swapper keeps 99.7% of input
-    uint256 public constant FEE_NUMERATOR = 997;
+    /// @notice Default fee tier applied when a pool is created without an explicit fee (0.3%)
+    uint24 public constant DEFAULT_FEE_BPS = 30;
 
-    /// @notice Fee denominator
-    uint256 public constant FEE_DENOMINATOR = 1000;
+    /// @notice Basis-point denominator for fee calculations
+    uint256 public constant FEE_DENOMINATOR_BPS = 10_000;
 
     /// @notice Minimum liquidity locked on first deposit to prevent manipulation
     uint256 public constant MINIMUM_LIQUIDITY = 1000;
@@ -39,6 +39,8 @@ contract AMMRouter is ReentrancyGuard {
         uint256 reserve1;
         /// @dev Total LP shares outstanding for this pair
         uint256 totalSupply;
+        /// @dev Trading fee in basis points (e.g. 30 = 0.3%). Zero means uninitialized.
+        uint24 feeBps;
     }
 
     // -----------------------------------------------------------------------
@@ -75,6 +77,9 @@ contract AMMRouter is ReentrancyGuard {
         uint256 liquidity
     );
 
+    /// @notice Emitted when a new pair is created with a specific fee tier
+    event PairCreated(address indexed token0, address indexed token1, uint24 feeBps);
+
     /// @notice Emitted when a token swap is executed
     event Swapped(
         address indexed user,
@@ -94,6 +99,39 @@ contract AMMRouter is ReentrancyGuard {
     error InsufficientOutputAmount();
     error InsufficientReserves();
     error InvalidReserves();
+    /// @notice Thrown when the requested fee tier is not one of: 1, 5, 30, 100 bps
+    error InvalidFeeTier(uint24 feeBps);
+    /// @notice Thrown when attempting to create a pair that already exists
+    error PairAlreadyExists();
+
+    // -----------------------------------------------------------------------
+    // External — Pair creation
+    // -----------------------------------------------------------------------
+
+    /// @notice Explicitly create a pair with a chosen fee tier
+    /// @dev Valid fee tiers: 1 bps (0.01%), 5 bps (0.05%), 30 bps (0.3%), 100 bps (1%)
+    ///      If a pair is never explicitly created, `addLiquidity` will auto-create it
+    ///      with `DEFAULT_FEE_BPS` (30) on the first deposit.
+    /// @param tokenA Address of the first token
+    /// @param tokenB Address of the second token
+    /// @param feeBps Fee in basis points
+    /// @return pairKey The canonical key for this pair
+    function createPair(
+        address tokenA,
+        address tokenB,
+        uint24 feeBps
+    ) external returns (bytes32 pairKey) {
+        if (tokenA == tokenB) revert IdenticalTokens();
+        if (!_isValidFeeTier(feeBps)) revert InvalidFeeTier(feeBps);
+
+        (address token0, address token1, , ) = _sortTokens(tokenA, tokenB, 0, 0);
+        pairKey = _pairKey(token0, token1);
+
+        if (pairs[pairKey].feeBps != 0) revert PairAlreadyExists();
+
+        pairs[pairKey].feeBps = feeBps;
+        emit PairCreated(token0, token1, feeBps);
+    }
 
     // -----------------------------------------------------------------------
     // External — Liquidity
@@ -131,7 +169,10 @@ contract AMMRouter is ReentrancyGuard {
         IERC20(token1).safeTransferFrom(msg.sender, address(this), amount1);
 
         if (pair.totalSupply == 0) {
-            // First liquidity deposit
+            // First liquidity deposit — auto-initialize fee if createPair was not called
+            if (pair.feeBps == 0) {
+                pair.feeBps = DEFAULT_FEE_BPS;
+            }
             liquidity = _sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
             // Lock minimum liquidity to the zero address
             pair.totalSupply = MINIMUM_LIQUIDITY;
@@ -228,7 +269,7 @@ contract AMMRouter is ReentrancyGuard {
 
         if (reserveIn == 0 || reserveOut == 0) revert InsufficientReserves();
 
-        amountOut = getAmountOut(amountIn, reserveIn, reserveOut);
+        amountOut = getAmountOut(amountIn, reserveIn, reserveOut, pair.feeBps);
         if (amountOut < amountOutMin) revert InsufficientOutputAmount();
         if (amountOut > reserveOut) revert InsufficientReserves();
 
@@ -252,23 +293,26 @@ contract AMMRouter is ReentrancyGuard {
     // -----------------------------------------------------------------------
 
     /// @notice Calculate the output amount for a given input using constant product formula
-    /// @dev Formula: amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
-    ///      The 997/1000 ratio implements a 0.3% trading fee.
+    /// @dev Formula: amountOut = (amountIn * (10000 - feeBps) * reserveOut)
+    ///                         / (reserveIn * 10000 + amountIn * (10000 - feeBps))
     /// @param amountIn The input amount
     /// @param reserveIn The reserve of the input token
     /// @param reserveOut The reserve of the output token
+    /// @param feeBps The fee in basis points for this pair (e.g. 30 = 0.3%)
     /// @return amountOut The calculated output amount after fees
     function getAmountOut(
         uint256 amountIn,
         uint256 reserveIn,
-        uint256 reserveOut
+        uint256 reserveOut,
+        uint24 feeBps
     ) public pure returns (uint256 amountOut) {
         if (amountIn == 0) revert ZeroAmount();
         if (reserveIn == 0 || reserveOut == 0) revert InvalidReserves();
 
-        uint256 amountInWithFee = amountIn * FEE_NUMERATOR;
+        uint256 feeMultiplier = FEE_DENOMINATOR_BPS - feeBps;
+        uint256 amountInWithFee = amountIn * feeMultiplier;
         uint256 numerator = amountInWithFee * reserveOut;
-        uint256 denominator = (reserveIn * FEE_DENOMINATOR) + amountInWithFee;
+        uint256 denominator = (reserveIn * FEE_DENOMINATOR_BPS) + amountInWithFee;
 
         amountOut = numerator / denominator;
     }
@@ -295,6 +339,15 @@ contract AMMRouter is ReentrancyGuard {
         }
     }
 
+    /// @notice Get the fee tier in basis points for a token pair
+    /// @param tokenA The address of the first token
+    /// @param tokenB The address of the second token
+    /// @return feeBps The fee in basis points (0 if pair has never been created)
+    function getPairFeeBps(address tokenA, address tokenB) external view returns (uint24 feeBps) {
+        (address token0, address token1, , ) = _sortTokens(tokenA, tokenB, 0, 0);
+        feeBps = pairs[_pairKey(token0, token1)].feeBps;
+    }
+
     /// @notice Get LP balance of a provider for a token pair
     /// @param tokenA The address of the first token
     /// @param tokenB The address of the second token
@@ -313,6 +366,11 @@ contract AMMRouter is ReentrancyGuard {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /// @dev Returns true for the four supported fee tiers: 1, 5, 30, 100 bps
+    function _isValidFeeTier(uint24 feeBps) internal pure returns (bool) {
+        return feeBps == 1 || feeBps == 5 || feeBps == 30 || feeBps == 100;
+    }
 
     /// @dev Sort tokens into canonical order (lower address first) and reorder amounts
     function _sortTokens(
