@@ -12,6 +12,7 @@ crates/
 ├── defi-common/      # Shared types, traits, errors
 ├── lending/          # Collateralized lending/borrowing
 ├── yield-farming/    # Yield farming & reward distribution
+├── bonding-curve/    # Weather data subscription pricing curves
 └── amm/              # DEX / Automated Market Maker
 
 contracts/            # Solidity EVM interfaces
