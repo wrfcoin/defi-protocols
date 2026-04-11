@@ -10,6 +10,7 @@ members = [
     "crates/twap-oracle",
     "crates/parametric-insurance",
     "crates/weather-derivatives",
+    "crates/prediction-market",
 ]
 
 [workspace.package]
