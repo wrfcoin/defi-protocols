@@ -8,6 +8,7 @@ members = [
     "crates/liquid-staking",
     "crates/twap-oracle",
     "crates/parametric-insurance",
+    "crates/weather-derivatives",
 ]
 
 [workspace.package]
