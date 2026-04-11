@@ -11,6 +11,7 @@ members = [
     "crates/parametric-insurance",
     "crates/weather-derivatives",
     "crates/prediction-market",
+    "crates/revenue-sharing",
 ]
 
 [workspace.package]
