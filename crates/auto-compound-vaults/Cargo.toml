@@ -1,0 +1,14 @@
+[package]
+name = "wrfcoin-auto-compound-vaults"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Auto-compounding vaults that wrap yield-farm positions and periodically harvest and reinvest rewards"
+
+[dependencies]
+wrfcoin-defi-common = { path = "../defi-common" }
+wrfcoin-yield-farming = { path = "../yield-farming" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -12,6 +12,7 @@ members = [
     "crates/weather-derivatives",
     "crates/prediction-market",
     "crates/revenue-sharing",
+    "crates/auto-compound-vaults",
 ]
 
 [workspace.package]
