@@ -1,0 +1,12 @@
+[package]
+name = "wrfcoin-prediction-market"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+wrfcoin-defi-common = { path = "../defi-common" }
+wrfcoin-amm = { path = "../amm" }
+serde.workspace = true
+thiserror.workspace = true
