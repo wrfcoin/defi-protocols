@@ -1,6 +1,7 @@
 use wrfcoin_defi_common::error::{DefiError, DefiResult};
-use wrfcoin_defi_common::traits::LendingProtocol;
+use wrfcoin_defi_common::traits::{LendingProtocol, PriceOracle};
 use wrfcoin_defi_common::types::{Address, Amount, AssetId, LiquidationEvent, Timestamp};
+use wrfcoin_twap_oracle::{TwapOracle, MIN_LIQUIDATION_WINDOW_SECS};
 
 use crate::collateral::{CollateralConfig, CollateralManager};
 use crate::flash_loan::{self, DEFAULT_FLASH_LOAN_FEE_BPS};
@@ -10,14 +11,23 @@ use crate::oracle::SimplePriceOracle;
 use crate::pool::LendingPool;
 
 /// Unified lending market composing all lending components.
+///
+/// The market uses `TwapOracle` as the primary price source when one is configured
+/// via [`LendingMarket::set_twap_oracle`]. `SimplePriceOracle` is kept for
+/// backwards-compatible testing and as the TWAP fallback.
 pub struct LendingMarket {
     pub pool: LendingPool,
     pub collateral: CollateralManager,
     pub liquidation: LiquidationEngine,
     pub interest_model: LinearInterestRate,
+    /// Simple spot-price oracle (backward-compatible; also acts as TWAP fallback).
     pub oracle: SimplePriceOracle,
+    /// TWAP oracle — when set, takes precedence over `oracle` for all price queries.
+    pub twap_oracle: Option<TwapOracle>,
     pub flash_loan_fee_bps: u64,
     pub max_price_age_secs: Option<u64>,
+    /// TWAP window used for liquidation checks (must be >= MIN_LIQUIDATION_WINDOW_SECS).
+    pub liquidation_twap_window_secs: u64,
 }
 
 impl LendingMarket {
@@ -28,8 +38,10 @@ impl LendingMarket {
             liquidation: LiquidationEngine::default(),
             interest_model: LinearInterestRate::default(),
             oracle: SimplePriceOracle::new(),
+            twap_oracle: None,
             flash_loan_fee_bps: DEFAULT_FLASH_LOAN_FEE_BPS,
             max_price_age_secs: None,
+            liquidation_twap_window_secs: MIN_LIQUIDATION_WINDOW_SECS,
         }
     }
 
@@ -39,6 +51,21 @@ impl LendingMarket {
 
     pub fn set_max_price_age_secs(&mut self, max_age_secs: u64) {
         self.max_price_age_secs = Some(max_age_secs);
+    }
+
+    /// Install a TWAP oracle. Once set, it takes precedence over `SimplePriceOracle`
+    /// for all price queries (borrow, liquidate, health factor).
+    pub fn set_twap_oracle(&mut self, twap: TwapOracle) {
+        self.twap_oracle = Some(twap);
+    }
+
+    /// Return a reference to the active price oracle — TWAP if available, else simple.
+    fn active_oracle(&self) -> &dyn PriceOracle {
+        if let Some(ref twap) = self.twap_oracle {
+            twap
+        } else {
+            &self.oracle
+        }
     }
 
     pub fn accrue_interest(&mut self, asset: &AssetId, timestamp: Timestamp) -> DefiResult<()> {
@@ -67,7 +94,7 @@ impl LendingMarket {
     }
 
     pub fn health_factor(&self, borrower: &Address) -> DefiResult<u64> {
-        self.collateral.get_health_factor(borrower, &self.oracle)
+        self.collateral.get_health_factor(borrower, self.active_oracle())
     }
 
     pub fn add_collateral(
@@ -85,8 +112,12 @@ impl LendingMarket {
     }
 
     fn ensure_fresh_prices(&self, assets: &[AssetId], timestamp: Timestamp) -> DefiResult<()> {
-        if let Some(max_age_secs) = self.max_price_age_secs {
-            self.oracle.ensure_fresh(assets, timestamp, max_age_secs)?;
+        // When a TWAP oracle is active, freshness is guaranteed by the observation history.
+        // Only apply the simple-oracle staleness check when no TWAP oracle is set.
+        if self.twap_oracle.is_none() {
+            if let Some(max_age_secs) = self.max_price_age_secs {
+                self.oracle.ensure_fresh(assets, timestamp, max_age_secs)?;
+            }
         }
         Ok(())
     }
@@ -142,7 +173,12 @@ impl LendingProtocol for LendingMarket {
             .unwrap_or_default();
         self.ensure_fresh_prices(&collateral_assets, timestamp)?;
 
-        let hf = self.collateral.get_health_factor(&borrower, &self.oracle)?;
+        // Resolve oracle to a local reference to avoid simultaneous borrow of self and self.collateral.
+        let hf = if let Some(ref twap) = self.twap_oracle {
+            self.collateral.get_health_factor(&borrower, twap)?
+        } else {
+            self.collateral.get_health_factor(&borrower, &self.oracle)?
+        };
         if hf < self.liquidation.liquidation_threshold_bps {
             self.pool.repay(&asset, amount, timestamp)?;
             self.collateral.debts.insert(debt_key, current_debt);
@@ -190,15 +226,29 @@ impl LendingProtocol for LendingMarket {
         self.ensure_fresh_prices(&[debt_asset.clone(), collateral_asset.clone()], timestamp)?;
         self.accrue_interest(&debt_asset, timestamp)?;
 
-        let outcome = self.liquidation.liquidate(
-            liquidator,
-            &borrower,
-            &debt_asset,
-            &collateral_asset,
-            amount,
-            &mut self.collateral,
-            &self.oracle,
-        )?;
+        // Resolve the active oracle into a local reference to avoid simultaneous
+        // mutable borrow of self.collateral and immutable borrow of self.
+        let outcome = if let Some(ref twap) = self.twap_oracle {
+            self.liquidation.liquidate(
+                liquidator,
+                &borrower,
+                &debt_asset,
+                &collateral_asset,
+                amount,
+                &mut self.collateral,
+                twap,
+            )?
+        } else {
+            self.liquidation.liquidate(
+                liquidator,
+                &borrower,
+                &debt_asset,
+                &collateral_asset,
+                amount,
+                &mut self.collateral,
+                &self.oracle,
+            )?
+        };
 
         self.pool.repay(&debt_asset, outcome.debt_repaid, timestamp)?;
 
