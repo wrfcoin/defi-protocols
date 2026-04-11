@@ -4,15 +4,15 @@ pragma solidity ^0.8.24;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {IWrfAMM} from "../interfaces/IWrfAMM.sol";
+import {IAMMRouter} from "../interfaces/IAMMRouter.sol";
 
 /// @title AMMRouter
 /// @notice An automated market maker router for the WRFCoin DeFi protocol.
-///         Implements a constant product (x*y=k) AMM with a 0.3% trading fee.
-///         Supports adding/removing liquidity and token swaps.
+///         Implements the canonical IAMMRouter/IWrfAMM constant-product surface
+///         with configurable fee tiers.
 /// @dev Pair ordering is canonical (sorted by address) to avoid duplicate pools.
 ///      LP shares are tracked internally rather than via a separate ERC20 token.
-contract AMMRouter is ReentrancyGuard, IWrfAMM {
+contract AMMRouter is ReentrancyGuard, IAMMRouter {
     using SafeERC20 for IERC20;
 
     // -----------------------------------------------------------------------
@@ -137,8 +137,11 @@ contract AMMRouter is ReentrancyGuard, IWrfAMM {
             // First liquidity deposit — auto-initialize fee if createPair was not called
             if (pair.feeBps == 0) {
                 pair.feeBps = DEFAULT_FEE_BPS;
+                emit PairCreated(token0, token1, DEFAULT_FEE_BPS);
             }
-            liquidity = _sqrt(amount0 * amount1) - MINIMUM_LIQUIDITY;
+            uint256 initialLiquidity = _sqrt(amount0 * amount1);
+            if (initialLiquidity <= MINIMUM_LIQUIDITY) revert InsufficientLiquidity();
+            liquidity = initialLiquidity - MINIMUM_LIQUIDITY;
             // Lock minimum liquidity to the zero address
             pair.totalSupply = MINIMUM_LIQUIDITY;
         } else {
@@ -208,8 +211,7 @@ contract AMMRouter is ReentrancyGuard, IWrfAMM {
     // -----------------------------------------------------------------------
 
     /// @notice Swap one token for another through the AMM
-    /// @dev Uses the constant product formula with a 0.3% fee:
-    ///      amountOut = (amountIn * 997 * reserveOut) / (reserveIn * 1000 + amountIn * 997)
+    /// @dev Uses the constant product formula with the pair's configured fee tier.
     /// @param tokenIn The address of the token to sell
     /// @param tokenOut The address of the token to buy
     /// @param amountIn The amount of tokenIn to sell
