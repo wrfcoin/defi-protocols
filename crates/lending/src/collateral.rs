@@ -14,7 +14,32 @@ pub struct CollateralConfig {
     pub liquidation_threshold_bps: u64,
 }
 
+/// stWRF collateral parameters (LTV 75 %, liquidation threshold 80 %).
+///
+/// These constants mirror `wrfcoin_liquid_staking::{STWRF_LTV_BPS, STWRF_LIQUIDATION_THRESHOLD_BPS}`
+/// and are duplicated here so the lending crate has no compile-time dependency on the
+/// liquid-staking crate (the two crates are wired together at the application layer).
+pub const STWRF_LTV_BPS: u64 = 7_500;
+pub const STWRF_LIQUIDATION_THRESHOLD_BPS: u64 = 8_000;
+
+/// Canonical asset identifier string for stWRF.
+pub const STWRF_ASSET_ID: &str = "stWRF";
+
 impl CollateralConfig {
+    /// Pre-configured risk parameters for the stWRF liquid-staking receipt token.
+    ///
+    /// * LTV: 75 % (7 500 bps)
+    /// * Liquidation threshold: 80 % (8 000 bps)
+    ///
+    /// # Panics
+    ///
+    /// This constructor hard-codes valid constants, so it will never panic in practice.
+    /// If the constants drift out of bounds, the panic message will surface in tests.
+    pub fn stwrf() -> Self {
+        Self::new(STWRF_LTV_BPS, STWRF_LIQUIDATION_THRESHOLD_BPS)
+            .expect("stWRF collateral config constants are always valid")
+    }
+
     pub fn new(max_ltv_bps: u64, liquidation_threshold_bps: u64) -> DefiResult<Self> {
         if max_ltv_bps == 0 || max_ltv_bps > MAX_SAFE_LTV_BPS {
             return Err(DefiError::InvalidAmount {
