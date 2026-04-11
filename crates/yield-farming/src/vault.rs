@@ -42,6 +42,84 @@ impl Default for VaultRiskSnapshot {
     }
 }
 
+/// #43-compatible governance input for vault risk composition.
+///
+/// The governance router normalizes emissions to a fixed budget and exposes
+/// a per-pool multiplier in basis points. The vault consumes only that bounded
+/// multiplier signal and never mints additional rewards.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GovernanceBoostInput {
+    pub normalized_multiplier_bps: u16,
+}
+
+impl GovernanceBoostInput {
+    pub fn new(normalized_multiplier_bps: u16) -> DefiResult<Self> {
+        if normalized_multiplier_bps == 0 {
+            return Err(DefiError::InvalidAmount {
+                reason: "governance multiplier must be non-zero".into(),
+            });
+        }
+        Ok(Self {
+            normalized_multiplier_bps,
+        })
+    }
+}
+
+/// #39-compatible liquid-staking exchange-rate input.
+///
+/// `exchange_rate_bps` is expressed as WRF backing per stWRF share against a
+/// neutral `10_000` baseline (1.0x).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LiquidStakingInput {
+    pub exchange_rate_bps: u16,
+}
+
+impl LiquidStakingInput {
+    pub fn new(exchange_rate_bps: u16) -> DefiResult<Self> {
+        if exchange_rate_bps == 0 {
+            return Err(DefiError::InvalidAmount {
+                reason: "liquid staking exchange rate must be non-zero".into(),
+            });
+        }
+        Ok(Self { exchange_rate_bps })
+    }
+
+    /// Build a staking input from pool totals:
+    /// exchange_rate_bps = total_wrf_staked / total_stwrf_supply * 10_000.
+    pub fn from_pool_totals(
+        total_wrf_staked: Amount,
+        total_stwrf_supply: Amount,
+    ) -> DefiResult<Self> {
+        if total_stwrf_supply.is_zero() {
+            return Err(DefiError::InvalidAmount {
+                reason: "total_stwrf_supply must be non-zero".into(),
+            });
+        }
+
+        let rate_bps = total_wrf_staked
+            .0
+            .checked_mul(BPS_SCALE as u128)
+            .and_then(|value| value.checked_div(total_stwrf_supply.0))
+            .ok_or(DefiError::Overflow {
+                operation: "vault liquid staking exchange rate".into(),
+            })?;
+
+        Self::new(rate_bps.min(u16::MAX as u128) as u16)
+    }
+}
+
+impl VaultRiskSnapshot {
+    pub fn from_integrations(
+        governance: GovernanceBoostInput,
+        liquid_staking: LiquidStakingInput,
+    ) -> Self {
+        Self {
+            governance_boost_bps: governance.normalized_multiplier_bps,
+            external_share_growth_bps: liquid_staking.exchange_rate_bps,
+        }
+    }
+}
+
 /// Guardrails that keep the vault from stacking multiple yield surfaces beyond
 /// the launch envelope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,6 +252,19 @@ impl AutoCompoundingVault {
         self.guardrails.validate_snapshot(&snapshot)?;
         self.risk_snapshot = snapshot;
         Ok(())
+    }
+
+    /// Update vault risk inputs from explicit #43 governance and #39
+    /// liquid-staking integration signals.
+    pub fn set_integrations(
+        &mut self,
+        governance: GovernanceBoostInput,
+        liquid_staking: LiquidStakingInput,
+    ) -> DefiResult<()> {
+        self.set_risk_snapshot(VaultRiskSnapshot::from_integrations(
+            governance,
+            liquid_staking,
+        ))
     }
 
     pub fn share_balance(&self, user: &Address) -> Amount {
@@ -606,5 +697,44 @@ mod tests {
         let outcome = vault.compound(&mut farm, ts(10)).unwrap();
         assert_eq!(outcome.reinvested_rewards, Amount::new(1_000));
         assert_eq!(vault.staked_balance, Amount::new(2_000));
+    }
+
+    #[test]
+    fn integrations_adapter_sets_snapshot_from_governance_and_liquid_staking() {
+        let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
+        let governance = GovernanceBoostInput::new(11_200).unwrap();
+        let liquid = LiquidStakingInput::new(11_000).unwrap();
+
+        vault.set_integrations(governance, liquid).unwrap();
+
+        assert_eq!(vault.risk_snapshot.governance_boost_bps, 11_200);
+        assert_eq!(vault.risk_snapshot.external_share_growth_bps, 11_000);
+        assert_eq!(vault.risk_snapshot.combined_effect_bps(), 12_320);
+    }
+
+    #[test]
+    fn liquid_staking_input_derives_exchange_rate_from_pool_totals() {
+        let liquid = LiquidStakingInput::from_pool_totals(Amount::new(1_050), Amount::new(1_000))
+            .unwrap();
+        assert_eq!(liquid.exchange_rate_bps, 10_500);
+    }
+
+    #[test]
+    fn liquid_staking_input_rejects_zero_supply() {
+        let err = LiquidStakingInput::from_pool_totals(Amount::new(1_000), Amount::ZERO)
+            .unwrap_err();
+        assert!(matches!(err, DefiError::InvalidAmount { .. }));
+    }
+
+    #[test]
+    fn integrations_adapter_rejects_excessive_combined_surface() {
+        let mut farm = farm_manager();
+        let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
+        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+
+        let governance = GovernanceBoostInput::new(11_800).unwrap();
+        let liquid = LiquidStakingInput::new(11_100).unwrap();
+        let err = vault.set_integrations(governance, liquid).unwrap_err();
+        assert!(matches!(err, DefiError::InvalidAmount { .. }));
     }
 }

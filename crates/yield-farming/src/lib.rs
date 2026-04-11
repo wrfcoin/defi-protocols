@@ -16,5 +16,6 @@ pub use utility_hooks::{
     UtilityBacktestPoint, UtilityBacktestTelemetry, UtilityRewardHook, UtilityRewardHookConfig,
 };
 pub use vault::{
-    AutoCompoundingVault, CompoundOutcome, VaultGuardrails, VaultRiskSnapshot,
+    AutoCompoundingVault, CompoundOutcome, GovernanceBoostInput, LiquidStakingInput,
+    VaultGuardrails, VaultRiskSnapshot,
 };
