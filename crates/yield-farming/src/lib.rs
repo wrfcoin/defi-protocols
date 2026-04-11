@@ -1,10 +1,15 @@
 pub mod escrow;
 pub mod farm;
+pub mod governance;
 pub mod rewards;
 pub mod strategy;
 pub mod utility_hooks;
 
 pub use farm::{FarmManager, FarmPool};
+pub use governance::{
+    GovernanceBoostConfig, GovernanceEmissionAllocation, GovernanceEmissionRouter,
+    GovernancePoolInput,
+};
 pub use escrow::{
     EscrowSettlement, EscrowTelemetry, EscrowedReward, ForfeitReason, QualityOutcomeSignalSource,
     QualityVerificationOutcome, RewardEscrowBook, RewardEscrowPolicy,
