@@ -7,5 +7,6 @@ repository.workspace = true
 
 [dependencies]
 wrfcoin-defi-common = { path = "../defi-common" }
+wrfcoin-twap-oracle = { path = "../twap-oracle" }
 serde.workspace = true
 thiserror.workspace = true
