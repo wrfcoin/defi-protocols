@@ -27,9 +27,10 @@ pragma solidity ^0.8.24;
 ///      AMMRouter was replaced with the bps model in PR #48.
 ///
 ///      This interface covers the AMMRouter API. CarbonCreditAMM exposes a
-///      lower-level pair interface (mint/burn/swap with token indices) and
-///      does not implement IWrfAMM directly; integrate it via its own
-///      ICarbonCreditAMM interface in wrfcoin/smart-contracts.
+///      lower-level Uniswap-v2 pair interface (transfer-then-mint/burn/swap)
+///      and does not implement IWrfAMM directly. Integrate it via
+///      `ICarbonCreditAMM` defined in
+///      wrfcoin/smart-contracts — contracts/interfaces/ICarbonCreditAMM.sol.
 interface IWrfAMM {
     // -----------------------------------------------------------------------
     // Events
