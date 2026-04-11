@@ -18,6 +18,14 @@ use crate::error::{PredictionError, PredictionResult};
 ///   max_val = max(qᵢ / b)
 ///   C(q)    = b · (max_val + ln(Σᵢ exp(qᵢ/b − max_val)))
 pub fn cost(q: &[f64], b: f64) -> PredictionResult<f64> {
+    if !b.is_finite() {
+        return Err(PredictionError::NonFinite);
+    }
+    for &qi in q {
+        if !qi.is_finite() {
+            return Err(PredictionError::NonFinite);
+        }
+    }
     if b <= 0.0 {
         return Err(PredictionError::LmsrError {
             reason: "liquidity parameter b must be positive".into(),
@@ -41,6 +49,9 @@ pub fn cost(q: &[f64], b: f64) -> PredictionResult<f64> {
 ///   marginal_cost = C(q') − C(q)
 /// where q'[i] = q[i] + delta and q'[j] = q[j] for j ≠ i.
 pub fn buy_cost(q: &[f64], b: f64, outcome_index: usize, delta: f64) -> PredictionResult<f64> {
+    if !delta.is_finite() {
+        return Err(PredictionError::NonFinite);
+    }
     if delta <= 0.0 {
         return Err(PredictionError::InvalidAmount {
             reason: "share amount must be positive".into(),
@@ -70,6 +81,9 @@ pub fn sell_proceeds(
     outcome_index: usize,
     delta: f64,
 ) -> PredictionResult<f64> {
+    if !delta.is_finite() {
+        return Err(PredictionError::NonFinite);
+    }
     if delta <= 0.0 {
         return Err(PredictionError::InvalidAmount {
             reason: "share amount must be positive".into(),
@@ -100,6 +114,14 @@ pub fn sell_proceeds(
 ///
 /// This is the first derivative of C with respect to qᵢ.
 pub fn price(q: &[f64], b: f64, outcome_index: usize) -> PredictionResult<f64> {
+    if !b.is_finite() {
+        return Err(PredictionError::NonFinite);
+    }
+    for &qi in q {
+        if !qi.is_finite() {
+            return Err(PredictionError::NonFinite);
+        }
+    }
     if outcome_index >= q.len() {
         return Err(PredictionError::InvalidOutcome {
             outcome_index,
@@ -217,5 +239,30 @@ mod tests {
         assert_eq!(lmsr_cost_to_base_units(1.1), 2);
         assert_eq!(lmsr_cost_to_base_units(1.9999), 2);
         assert_eq!(lmsr_cost_to_base_units(100.0), 100);
+    }
+
+    #[test]
+    fn test_nan_b_rejected() {
+        assert!(matches!(cost(&[0.0, 0.0], f64::NAN), Err(PredictionError::NonFinite)));
+    }
+
+    #[test]
+    fn test_inf_b_rejected() {
+        assert!(matches!(cost(&[0.0, 0.0], f64::INFINITY), Err(PredictionError::NonFinite)));
+    }
+
+    #[test]
+    fn test_nan_q_rejected() {
+        assert!(matches!(cost(&[f64::NAN, 0.0], 100.0), Err(PredictionError::NonFinite)));
+    }
+
+    #[test]
+    fn test_inf_delta_buy_rejected() {
+        assert!(matches!(buy_cost(&[0.0, 0.0], 100.0, 0, f64::INFINITY), Err(PredictionError::NonFinite)));
+    }
+
+    #[test]
+    fn test_nan_delta_sell_rejected() {
+        assert!(matches!(sell_proceeds(&[10.0, 0.0], 100.0, 0, f64::NAN), Err(PredictionError::NonFinite)));
     }
 }
