@@ -31,6 +31,9 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
     /// @notice Expiry window after which a queued emission change is no longer valid
     uint256 public constant EMISSION_EXPIRY = 7 days;
 
+    /// @notice Hard ceiling on global emissions across all pools
+    uint256 public constant MAX_GLOBAL_REWARD_PER_SECOND = 100 ether;
+
     // -----------------------------------------------------------------------
     // Types
     // -----------------------------------------------------------------------
@@ -47,6 +50,8 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
         uint256 accRewardPerShare;
         /// @dev Total LP tokens staked in this pool
         uint256 totalStaked;
+        /// @dev Hard cap on emitted rewards per second for this pool
+        uint256 maxRewardPerSecond;
     }
 
     /// @notice Information about a user's stake in a specific pool
@@ -107,6 +112,9 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
     /// @notice Emitted when a pool's allocation points are updated
     event PoolUpdated(uint256 indexed pid, uint256 allocPoint);
 
+    /// @notice Emitted when a pool's emission cap is updated
+    event PoolEmissionCapUpdated(uint256 indexed pid, uint256 maxRewardPerSecond);
+
     /// @notice Emitted when an emission rate change is queued
     event EmissionChangeQueued(uint256 newRewardPerSecond, uint256 executeAfter);
 
@@ -128,6 +136,8 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
     error TimelockNotElapsed();
     error TimelockExpired();
     error RewardChangeAlreadyQueued();
+    error EmissionCapExceeded();
+    error InvalidEmissionCap();
 
     // -----------------------------------------------------------------------
     // Constructor
@@ -142,6 +152,7 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
         uint256 _rewardPerSecond,
         address _owner
     ) Ownable(_owner) {
+        if (_rewardPerSecond > MAX_GLOBAL_REWARD_PER_SECOND) revert EmissionCapExceeded();
         rewardToken = _rewardToken;
         rewardPerSecond = _rewardPerSecond;
     }
@@ -166,7 +177,8 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
                 allocPoint: _allocPoint,
                 lastRewardTime: block.timestamp,
                 accRewardPerShare: 0,
-                totalStaked: 0
+                totalStaked: 0,
+                maxRewardPerSecond: MAX_GLOBAL_REWARD_PER_SECOND
             })
         );
 
@@ -187,10 +199,26 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
         emit PoolUpdated(_pid, _allocPoint);
     }
 
+    /// @notice Update the per-pool emission cap
+    /// @param _pid The pool ID to update
+    /// @param _maxRewardPerSecond The new maximum reward rate for this pool
+    function setPoolEmissionCap(uint256 _pid, uint256 _maxRewardPerSecond) external onlyOwner {
+        if (_pid >= poolInfo.length) revert InvalidPool();
+        if (_maxRewardPerSecond == 0 || _maxRewardPerSecond > MAX_GLOBAL_REWARD_PER_SECOND) {
+            revert InvalidEmissionCap();
+        }
+
+        _updatePool(_pid);
+        poolInfo[_pid].maxRewardPerSecond = _maxRewardPerSecond;
+
+        emit PoolEmissionCapUpdated(_pid, _maxRewardPerSecond);
+    }
+
     /// @notice Queue a new reward emission rate (subject to timelock)
     /// @param _rewardPerSecond The new reward tokens per second
     function queueRewardPerSecond(uint256 _rewardPerSecond) external onlyOwner {
         if (hasPendingRewardChange) revert RewardChangeAlreadyQueued();
+        if (_rewardPerSecond > MAX_GLOBAL_REWARD_PER_SECOND) revert EmissionCapExceeded();
 
         pendingRewardPerSecond = _rewardPerSecond;
         rewardChangeQueuedAt = block.timestamp;
@@ -338,6 +366,10 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
         if (block.timestamp > pool.lastRewardTime && pool.totalStaked > 0 && totalAllocPoint > 0) {
             uint256 elapsed = block.timestamp - pool.lastRewardTime;
             uint256 reward = (elapsed * rewardPerSecond * pool.allocPoint) / totalAllocPoint;
+            uint256 poolCapReward = elapsed * pool.maxRewardPerSecond;
+            if (reward > poolCapReward) {
+                reward = poolCapReward;
+            }
             accRewardPerShare += (reward * ACC_REWARD_PRECISION) / pool.totalStaked;
         }
 
@@ -367,6 +399,10 @@ contract YieldFarm is ReentrancyGuard, Ownable2Step {
 
         uint256 elapsed = block.timestamp - pool.lastRewardTime;
         uint256 reward = (elapsed * rewardPerSecond * pool.allocPoint) / totalAllocPoint;
+        uint256 poolCapReward = elapsed * pool.maxRewardPerSecond;
+        if (reward > poolCapReward) {
+            reward = poolCapReward;
+        }
 
         pool.accRewardPerShare += (reward * ACC_REWARD_PRECISION) / pool.totalStaked;
         pool.lastRewardTime = block.timestamp;

@@ -24,10 +24,14 @@ pub struct FarmPool {
     pub alloc_point: u64,
     /// Accumulated reward per share, scaled by ACC_REWARD_PRECISION.
     pub acc_reward_per_share: u128,
+    /// Accumulated baseline reward per share before utility weighting.
+    pub acc_base_reward_per_share: u128,
     /// Total amount of LP tokens staked in this pool.
     pub total_staked: Amount,
     /// Timestamp of the last reward distribution update.
     pub last_reward_time: Timestamp,
+    /// Hard ceiling on emitted rewards per second for this pool.
+    pub max_reward_per_second: Amount,
 }
 
 /// Per-user staking info within a specific pool.
@@ -35,6 +39,8 @@ pub struct FarmPool {
 pub struct UserStakeInfo {
     /// Amount of LP tokens the user has staked.
     pub amount: Amount,
+    /// Baseline reward debt before utility weighting.
+    pub base_reward_debt: u128,
     /// Reward debt: used to calculate pending rewards correctly.
     /// reward_debt = amount * acc_reward_per_share / ACC_REWARD_PRECISION at the time of deposit.
     pub reward_debt: u128,
@@ -44,6 +50,7 @@ impl UserStakeInfo {
     fn new() -> Self {
         Self {
             amount: Amount::ZERO,
+            base_reward_debt: 0,
             reward_debt: 0,
         }
     }
@@ -58,12 +65,16 @@ pub struct FarmManager {
     pub user_info: HashMap<(usize, Address), UserStakeInfo>,
     /// Global reward emission rate (reward tokens per second).
     pub reward_per_second: Amount,
+    /// Hard ceiling on global rewards emitted per second.
+    pub max_reward_per_second: Amount,
     /// Sum of all allocation points across pools.
     pub total_alloc_point: u64,
     /// Utility-linked reward hook configuration and logic.
     pub utility_reward_hook: UtilityRewardHook,
     /// Utility signal snapshot per pool index.
     pub pool_utility_signals: HashMap<usize, UtilitySignalSnapshot>,
+    /// Optional tighter per-address multiplier ceilings in basis points.
+    pub user_multiplier_limits_bps: HashMap<Address, u16>,
     /// Reward escrow state for quality/utility verification-gated payouts.
     pub reward_escrow: RewardEscrowBook,
 }
@@ -74,9 +85,11 @@ impl FarmManager {
             pools: Vec::new(),
             user_info: HashMap::new(),
             reward_per_second,
+            max_reward_per_second: reward_per_second,
             total_alloc_point: 0,
             utility_reward_hook: UtilityRewardHook::default(),
             pool_utility_signals: HashMap::new(),
+            user_multiplier_limits_bps: HashMap::new(),
             reward_escrow: RewardEscrowBook::default(),
         }
     }
@@ -89,8 +102,10 @@ impl FarmManager {
             lp_token,
             alloc_point,
             acc_reward_per_share: 0,
+            acc_base_reward_per_share: 0,
             total_staked: Amount::ZERO,
             last_reward_time: timestamp,
+            max_reward_per_second: self.max_reward_per_second,
         });
         self.total_alloc_point += alloc_point;
         let pool_index = self.pools.len() - 1;
@@ -140,14 +155,52 @@ impl FarmManager {
         self.reward_escrow.telemetry()
     }
 
+    pub fn set_global_emission_cap(&mut self, max_reward_per_second: Amount) {
+        self.max_reward_per_second = max_reward_per_second;
+    }
+
+    pub fn set_pool_emission_cap(
+        &mut self,
+        pool_index: usize,
+        max_reward_per_second: Amount,
+    ) -> DefiResult<()> {
+        let pool = self
+            .pools
+            .get_mut(pool_index)
+            .ok_or(DefiError::InvalidPool {
+                pool_id: PoolId::new(pool_index as u64),
+            })?;
+        pool.max_reward_per_second = max_reward_per_second;
+        Ok(())
+    }
+
+    pub fn set_user_multiplier_limit(
+        &mut self,
+        user: Address,
+        multiplier_limit_bps: u16,
+    ) -> DefiResult<()> {
+        self.utility_reward_hook.config.validate()?;
+        if multiplier_limit_bps < self.utility_reward_hook.config.neutral_multiplier_bps
+            || multiplier_limit_bps
+                > self
+                    .utility_reward_hook
+                    .config
+                    .per_address_multiplier_limit_bps
+        {
+            return Err(DefiError::InvalidAmount {
+                reason: "user multiplier limit must be between neutral and configured cap".into(),
+            });
+        }
+        self.user_multiplier_limits_bps
+            .insert(user, multiplier_limit_bps);
+        Ok(())
+    }
+
     pub fn escrowed_reward_count(&self) -> usize {
         self.reward_escrow.escrowed_count()
     }
 
-    pub fn escrowed_reward(
-        &self,
-        escrow_id: u64,
-    ) -> DefiResult<&crate::escrow::EscrowedReward> {
+    pub fn escrowed_reward(&self, escrow_id: u64) -> DefiResult<&crate::escrow::EscrowedReward> {
         self.reward_escrow
             .escrowed_reward(escrow_id)
             .ok_or(DefiError::InvalidAmount {
@@ -163,13 +216,21 @@ impl FarmManager {
     ) -> DefiResult<(PoolId, Amount)> {
         self.update_pool(pool_index, timestamp)?;
 
-        let (pool_id, acc_reward_per_share) = self
+        let (pool_id, acc_base_reward_per_share, acc_reward_per_share) = self
             .pools
             .get(pool_index)
-            .map(|pool| (pool.pool_id, pool.acc_reward_per_share))
+            .map(|pool| {
+                (
+                    pool.pool_id,
+                    pool.acc_base_reward_per_share,
+                    pool.acc_reward_per_share,
+                )
+            })
             .ok_or(DefiError::InvalidPool {
                 pool_id: PoolId::new(pool_index as u64),
             })?;
+        let reward_hook = self.utility_reward_hook;
+        let user_multiplier_limit_bps = self.effective_user_multiplier_limit_bps(&user);
 
         let key = (pool_index, user);
         let info = self
@@ -179,6 +240,14 @@ impl FarmManager {
                 reason: "no stake found for user".into(),
             })?;
 
+        let accumulated_base = info
+            .amount
+            .0
+            .checked_mul(acc_base_reward_per_share)
+            .and_then(|value| value.checked_div(ACC_REWARD_PRECISION))
+            .ok_or(DefiError::Overflow {
+                operation: "farm harvest accumulated base".into(),
+            })?;
         let accumulated = info
             .amount
             .0
@@ -187,10 +256,60 @@ impl FarmManager {
             .ok_or(DefiError::Overflow {
                 operation: "farm harvest accumulated".into(),
             })?;
-        let pending = Amount(accumulated.saturating_sub(info.reward_debt));
+        let pending = reward_hook.cap_reward(
+            Amount(accumulated_base.saturating_sub(info.base_reward_debt)),
+            Amount(accumulated.saturating_sub(info.reward_debt)),
+            user_multiplier_limit_bps,
+        )?;
+        info.base_reward_debt = accumulated_base;
         info.reward_debt = accumulated;
 
         Ok((pool_id, pending))
+    }
+
+    fn effective_user_multiplier_limit_bps(&self, user: &Address) -> u16 {
+        self.user_multiplier_limits_bps
+            .get(user)
+            .copied()
+            .unwrap_or(
+                self.utility_reward_hook
+                    .config
+                    .per_address_multiplier_limit_bps,
+            )
+            .min(
+                self.utility_reward_hook
+                    .config
+                    .per_address_multiplier_limit_bps,
+            )
+            .max(self.utility_reward_hook.config.neutral_multiplier_bps)
+    }
+
+    fn pool_reward_for_elapsed(
+        &self,
+        pool_index: usize,
+        elapsed: u64,
+    ) -> DefiResult<(Amount, Amount)> {
+        let pool = self.pools.get(pool_index).ok_or(DefiError::InvalidPool {
+            pool_id: PoolId::new(pool_index as u64),
+        })?;
+        let effective_global_rps = self.reward_per_second.min(self.max_reward_per_second).0;
+        let base_reward = (elapsed as u128)
+            .checked_mul(effective_global_rps)
+            .and_then(|value| value.checked_mul(pool.alloc_point as u128))
+            .and_then(|value| value.checked_div(self.total_alloc_point as u128))
+            .ok_or(DefiError::Overflow {
+                operation: "update_pool reward calculation".into(),
+            })?;
+        let pool_cap = (elapsed as u128)
+            .checked_mul(pool.max_reward_per_second.0)
+            .ok_or(DefiError::Overflow {
+                operation: "update_pool pool emission cap".into(),
+            })?;
+        let base_reward = Amount::new(base_reward.min(pool_cap));
+        let weighted_reward = self
+            .utility_reward_hook
+            .apply(base_reward, &self.signal_for_pool(pool_index))?;
+        Ok((base_reward, weighted_reward))
     }
 
     /// Harvest rewards and route payout through escrow policy using an explicit verification outcome.
@@ -251,26 +370,19 @@ impl FarmManager {
             return Ok(());
         }
 
-        let elapsed = timestamp.elapsed_since(pool.last_reward_time) as u128;
-        let pool_alloc = pool.alloc_point as u128;
-        let total_alloc = self.total_alloc_point as u128;
-        let rps = self.reward_per_second.0;
-
-        // reward = elapsed * reward_per_second * pool_alloc / total_alloc
-        let reward = elapsed
-            .checked_mul(rps)
-            .and_then(|v| v.checked_mul(pool_alloc))
-            .and_then(|v| v.checked_div(total_alloc))
-            .ok_or(DefiError::Overflow {
-                operation: "update_pool reward calculation".into(),
-            })?;
-        let reward = self
-            .utility_reward_hook
-            .apply(Amount::new(reward), &self.signal_for_pool(pool_index))?
-            .0;
+        let elapsed = timestamp.elapsed_since(pool.last_reward_time);
+        let (base_reward, reward) = self.pool_reward_for_elapsed(pool_index, elapsed)?;
 
         // acc_reward_per_share += reward * ACC_REWARD_PRECISION / total_staked
+        let base_acc_increment = base_reward
+            .0
+            .checked_mul(ACC_REWARD_PRECISION)
+            .and_then(|v| v.checked_div(pool.total_staked.0))
+            .ok_or(DefiError::Overflow {
+                operation: "update_pool base acc_reward".into(),
+            })?;
         let acc_increment = reward
+            .0
             .checked_mul(ACC_REWARD_PRECISION)
             .and_then(|v| v.checked_div(pool.total_staked.0))
             .ok_or(DefiError::Overflow {
@@ -282,6 +394,12 @@ impl FarmManager {
             .get_mut(pool_index)
             .ok_or(DefiError::InvalidPool {
                 pool_id: PoolId::new(pool_index as u64),
+            })?;
+        pool.acc_base_reward_per_share = pool
+            .acc_base_reward_per_share
+            .checked_add(base_acc_increment)
+            .ok_or(DefiError::Overflow {
+                operation: "update_pool base acc_reward sum".into(),
             })?;
         pool.acc_reward_per_share =
             pool.acc_reward_per_share
@@ -307,7 +425,10 @@ impl FarmManager {
         let pool = self.pools.get(pool_index).ok_or(DefiError::InvalidPool {
             pool_id: PoolId::new(pool_index as u64),
         })?;
+        let base_acc = pool.acc_base_reward_per_share;
         let acc = pool.acc_reward_per_share;
+        let reward_hook = self.utility_reward_hook;
+        let user_multiplier_limit_bps = self.effective_user_multiplier_limit_bps(&user);
         let key = (pool_index, user);
         let info = self.user_info.entry(key).or_insert_with(UserStakeInfo::new);
 
@@ -315,13 +436,23 @@ impl FarmManager {
         let pending = if info.amount.is_zero() {
             Amount::ZERO
         } else {
+            let accumulated_base = info
+                .amount
+                .0
+                .checked_mul(base_acc)
+                .and_then(|v| v.checked_div(ACC_REWARD_PRECISION))
+                .unwrap_or(0);
             let accumulated = info
                 .amount
                 .0
                 .checked_mul(acc)
                 .and_then(|v| v.checked_div(ACC_REWARD_PRECISION))
                 .unwrap_or(0);
-            Amount(accumulated.saturating_sub(info.reward_debt))
+            reward_hook.cap_reward(
+                Amount(accumulated_base.saturating_sub(info.base_reward_debt)),
+                Amount(accumulated.saturating_sub(info.reward_debt)),
+                user_multiplier_limit_bps,
+            )?
         };
 
         // Increase stake.
@@ -330,6 +461,14 @@ impl FarmManager {
         })?;
 
         // Update reward debt.
+        info.base_reward_debt = info
+            .amount
+            .0
+            .checked_mul(base_acc)
+            .and_then(|v| v.checked_div(ACC_REWARD_PRECISION))
+            .ok_or(DefiError::Overflow {
+                operation: "farm deposit base_reward_debt".into(),
+            })?;
         info.reward_debt = info
             .amount
             .0
@@ -369,7 +508,10 @@ impl FarmManager {
         let pool = self.pools.get(pool_index).ok_or(DefiError::InvalidPool {
             pool_id: PoolId::new(pool_index as u64),
         })?;
+        let base_acc = pool.acc_base_reward_per_share;
         let acc = pool.acc_reward_per_share;
+        let reward_hook = self.utility_reward_hook;
+        let user_multiplier_limit_bps = self.effective_user_multiplier_limit_bps(&user);
         let key = (pool_index, user);
         let info = self
             .user_info
@@ -386,13 +528,23 @@ impl FarmManager {
         }
 
         // Calculate pending rewards.
+        let accumulated_base = info
+            .amount
+            .0
+            .checked_mul(base_acc)
+            .and_then(|v| v.checked_div(ACC_REWARD_PRECISION))
+            .unwrap_or(0);
         let accumulated = info
             .amount
             .0
             .checked_mul(acc)
             .and_then(|v| v.checked_div(ACC_REWARD_PRECISION))
             .unwrap_or(0);
-        let pending = Amount(accumulated.saturating_sub(info.reward_debt));
+        let pending = reward_hook.cap_reward(
+            Amount(accumulated_base.saturating_sub(info.base_reward_debt)),
+            Amount(accumulated.saturating_sub(info.reward_debt)),
+            user_multiplier_limit_bps,
+        )?;
 
         // Decrease stake.
         info.amount = info.amount.checked_sub(amount).ok_or(DefiError::Overflow {
@@ -400,6 +552,14 @@ impl FarmManager {
         })?;
 
         // Update reward debt.
+        info.base_reward_debt = info
+            .amount
+            .0
+            .checked_mul(base_acc)
+            .and_then(|v| v.checked_div(ACC_REWARD_PRECISION))
+            .ok_or(DefiError::Overflow {
+                operation: "farm withdraw base_reward_debt".into(),
+            })?;
         info.reward_debt = info
             .amount
             .0
@@ -444,31 +604,31 @@ impl FarmManager {
         };
 
         // Simulate pool update to get current acc_reward_per_share.
+        let mut base_acc = pool.acc_base_reward_per_share;
         let mut acc = pool.acc_reward_per_share;
         if timestamp > pool.last_reward_time
             && !pool.total_staked.is_zero()
             && self.total_alloc_point > 0
         {
-            let elapsed = timestamp.elapsed_since(pool.last_reward_time) as u128;
-            let pool_alloc = pool.alloc_point as u128;
-            let total_alloc = self.total_alloc_point as u128;
-            let rps = self.reward_per_second.0;
+            let (base_reward, reward) = self.pool_reward_for_elapsed(
+                pool_index,
+                timestamp.elapsed_since(pool.last_reward_time),
+            )?;
+            let base_acc_increment =
+                base_reward.0.saturating_mul(ACC_REWARD_PRECISION) / pool.total_staked.0;
+            let acc_increment = reward.0.saturating_mul(ACC_REWARD_PRECISION) / pool.total_staked.0;
 
-            let reward = elapsed.saturating_mul(rps).saturating_mul(pool_alloc) / total_alloc;
-            let reward = self
-                .utility_reward_hook
-                .apply(Amount::new(reward), &self.signal_for_pool(pool_index))?
-                .0;
-
-            let acc_increment = reward.saturating_mul(ACC_REWARD_PRECISION) / pool.total_staked.0;
-
+            base_acc = base_acc.saturating_add(base_acc_increment);
             acc = acc.saturating_add(acc_increment);
         }
 
+        let accumulated_base = info.amount.0.saturating_mul(base_acc) / ACC_REWARD_PRECISION;
         let accumulated = info.amount.0.saturating_mul(acc) / ACC_REWARD_PRECISION;
-        let pending = accumulated.saturating_sub(info.reward_debt);
-
-        Ok(Amount(pending))
+        self.utility_reward_hook.cap_reward(
+            Amount(accumulated_base.saturating_sub(info.base_reward_debt)),
+            Amount(accumulated.saturating_sub(info.reward_debt)),
+            self.effective_user_multiplier_limit_bps(user),
+        )
     }
 }
 
@@ -659,6 +819,50 @@ mod tests {
     }
 
     #[test]
+    fn test_global_emission_cap_clamps_rewards() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.set_global_emission_cap(Amount::new(60));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert_eq!(pending, Amount::new(600));
+    }
+
+    #[test]
+    fn test_pool_emission_cap_clamps_rewards() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.set_pool_emission_cap(0, Amount::new(30)).unwrap();
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert_eq!(pending, Amount::new(300));
+    }
+
+    #[test]
+    fn test_user_multiplier_limit_caps_boosted_rewards() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.set_user_multiplier_limit(addr(1), 11_000).unwrap();
+        fm.set_pool_utility_signal(
+            0,
+            UtilitySignalSnapshot {
+                forecast_usefulness_bps: 9_000,
+                report_usefulness_bps: 9_500,
+                verification_confidence_bps: 10_000,
+                verified_events: 9,
+                unverified_events: 1,
+            },
+        )
+        .unwrap();
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert_eq!(pending, Amount::new(1100));
+    }
+
+    #[test]
     fn test_harvest_holds_until_quality_verification_settles() {
         let mut fm = FarmManager::new(Amount::new(100));
         fm.add_pool(AssetId::new("LP"), 100, ts(0));
@@ -735,7 +939,12 @@ mod tests {
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         let settlement = fm
-            .harvest_with_outcome(addr(1), 0, ts(10), QualityVerificationOutcome::FraudDetected)
+            .harvest_with_outcome(
+                addr(1),
+                0,
+                ts(10),
+                QualityVerificationOutcome::FraudDetected,
+            )
             .unwrap();
         match settlement {
             EscrowSettlement::Forfeited {
