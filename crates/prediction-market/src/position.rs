@@ -34,10 +34,7 @@ impl UserPosition {
     }
 
     pub fn remove_shares(&mut self, delta: f64) {
-        self.shares -= delta;
-        if self.shares < 0.0 {
-            self.shares = 0.0;
-        }
+        self.shares = f64::max(0.0, self.shares - delta);
     }
 }
 
@@ -107,5 +104,23 @@ impl PositionLedger {
             .values()
             .filter(|p| p.market_id == market_id && p.outcome_index == outcome_index)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn dummy_address(byte: u8) -> Address {
+        Address([byte; 32])
+    }
+
+    #[test]
+    fn test_remove_shares_zero_floor() {
+        let mut pos = UserPosition::new(dummy_address(1), 0, 0);
+        pos.shares = 5.0;
+        // Remove more than available — should clamp to 0, not go negative.
+        pos.remove_shares(10.0);
+        assert_eq!(pos.shares, 0.0, "shares must not go below zero");
     }
 }
