@@ -16,7 +16,8 @@ This PR centers on a new Rust crate:
 
 The crate models:
 
-- exponential pricing as the primary launch mode
+- sigmoid pricing as the primary launch mode
+- exponential pricing as an alternate option for steeper launch profiles
 - linear and polynomial curves as natural extensions
 - buy / sell quote and execution paths
 - reserve-ratio split bookkeeping
@@ -40,8 +41,8 @@ To avoid a stacked-emission-style runaway path, the market applies two hard limi
    Caps the total number of outstanding subscription tokens for a region/tier market.
 
 2. `max_price_multiplier_bps`
-   Caps the marginal price relative to the base price, so an aggressive exponential curve cannot
-   grow without bound.
+   Caps the marginal price relative to the launch price, so an aggressive curve cannot grow
+   without bound.
 
 These guardrails mirror the shape of `#47`:
 
@@ -49,6 +50,10 @@ These guardrails mirror the shape of `#47`:
 - cap the multiplier
 
 without reusing the yield-farm emission mechanism itself.
+
+The sigmoid curve keeps the launch price low, then bends toward a ceiling as demand increases.
+Exponential remains available for markets that want a faster ramp, but it is no longer the
+only supported launch shape.
 
 ## Scope Choice
 

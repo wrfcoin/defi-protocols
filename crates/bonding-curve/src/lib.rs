@@ -101,6 +101,11 @@ pub enum BondingCurve {
         base_price: Amount,
         growth_bps: u64,
     },
+    Sigmoid {
+        max_price: Amount,
+        midpoint: Amount,
+        steepness: u8,
+    },
 }
 
 impl BondingCurve {
@@ -115,6 +120,7 @@ impl BondingCurve {
                     });
                 }
             }
+            BondingCurve::Sigmoid { .. } => {}
         }
 
         match self {
@@ -135,6 +141,33 @@ impl BondingCurve {
                 }
                 Ok(())
             }
+            BondingCurve::Sigmoid {
+                max_price,
+                midpoint,
+                steepness,
+            } => {
+                if max_price.is_zero() {
+                    return Err(DefiError::InvalidAmount {
+                        reason: "sigmoid max_price must be non-zero".into(),
+                    });
+                }
+                if midpoint.is_zero() {
+                    return Err(DefiError::InvalidAmount {
+                        reason: "sigmoid midpoint must be non-zero".into(),
+                    });
+                }
+                if *steepness == 0 {
+                    return Err(DefiError::InvalidAmount {
+                        reason: "sigmoid steepness must be non-zero".into(),
+                    });
+                }
+                if sigmoid_price(*max_price, *midpoint, *steepness, Amount::ZERO)?.is_zero() {
+                    return Err(DefiError::InvalidAmount {
+                        reason: "sigmoid launch price must be non-zero".into(),
+                    });
+                }
+                Ok(())
+            }
         }
     }
 
@@ -143,6 +176,13 @@ impl BondingCurve {
             BondingCurve::Linear { base_price, .. }
             | BondingCurve::Polynomial { base_price, .. }
             | BondingCurve::Exponential { base_price, .. } => *base_price,
+            BondingCurve::Sigmoid {
+                max_price,
+                midpoint,
+                steepness,
+            } => {
+                sigmoid_price(*max_price, *midpoint, *steepness, Amount::ZERO).unwrap_or(*max_price)
+            }
         }
     }
 
@@ -156,14 +196,17 @@ impl BondingCurve {
 
         let uncapped_price = match self {
             BondingCurve::Linear { base_price, slope } => {
-                let increment = slope.checked_mul(supply_before_purchase.0).ok_or(
-                    DefiError::Overflow {
-                        operation: "linear bonding curve increment".into(),
-                    },
-                )?;
-                base_price.checked_add(increment).ok_or(DefiError::Overflow {
-                    operation: "linear bonding curve marginal price".into(),
-                })?
+                let increment =
+                    slope
+                        .checked_mul(supply_before_purchase.0)
+                        .ok_or(DefiError::Overflow {
+                            operation: "linear bonding curve increment".into(),
+                        })?;
+                base_price
+                    .checked_add(increment)
+                    .ok_or(DefiError::Overflow {
+                        operation: "linear bonding curve marginal price".into(),
+                    })?
             }
             BondingCurve::Polynomial {
                 base_price,
@@ -174,9 +217,11 @@ impl BondingCurve {
                 let increment = coefficient.checked_mul(power).ok_or(DefiError::Overflow {
                     operation: "polynomial bonding curve increment".into(),
                 })?;
-                base_price.checked_add(increment).ok_or(DefiError::Overflow {
-                    operation: "polynomial bonding curve marginal price".into(),
-                })?
+                base_price
+                    .checked_add(increment)
+                    .ok_or(DefiError::Overflow {
+                        operation: "polynomial bonding curve marginal price".into(),
+                    })?
             }
             BondingCurve::Exponential {
                 base_price,
@@ -185,16 +230,18 @@ impl BondingCurve {
                 let mut price = *base_price;
                 for _ in 0..u128_to_usize(supply_before_purchase.0)? {
                     price = price
-                        .mul_fraction(
-                            (BPS_SCALE + growth_bps) as u128,
-                            BPS_SCALE as u128,
-                        )
+                        .mul_fraction((BPS_SCALE + growth_bps) as u128, BPS_SCALE as u128)
                         .ok_or(DefiError::Overflow {
                             operation: "exponential bonding curve marginal price".into(),
                         })?;
                 }
                 price
             }
+            BondingCurve::Sigmoid {
+                max_price,
+                midpoint,
+                steepness,
+            } => sigmoid_price(*max_price, *midpoint, *steepness, supply_before_purchase)?,
         };
 
         guardrails.capped_price(self.base_price(), uncapped_price)
@@ -315,33 +362,38 @@ impl SubscriptionToken {
                 break;
             }
 
-            let reserve_piece =
-                reserve_backed_component(price, self.reserve_ratio_bps)?;
-            let contributor_piece = price
-                .checked_sub(reserve_piece)
-                .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_buy contributor split".into(),
-                })?;
+            let reserve_piece = reserve_backed_component(price, self.reserve_ratio_bps)?;
+            let contributor_piece =
+                price
+                    .checked_sub(reserve_piece)
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_buy contributor split".into(),
+                    })?;
 
             spent = next_spent;
-            reserve_added = reserve_added
-                .checked_add(reserve_piece)
-                .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_buy reserve".into(),
-                })?;
-            contributor_funding = contributor_funding
-                .checked_add(contributor_piece)
-                .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_buy contributor".into(),
-                })?;
-            minted = minted.checked_add(Amount::new(1)).ok_or(DefiError::Overflow {
-                operation: "bonding curve quote_buy mint count".into(),
-            })?;
-            simulated_supply = simulated_supply
+            reserve_added =
+                reserve_added
+                    .checked_add(reserve_piece)
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_buy reserve".into(),
+                    })?;
+            contributor_funding =
+                contributor_funding
+                    .checked_add(contributor_piece)
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_buy contributor".into(),
+                    })?;
+            minted = minted
                 .checked_add(Amount::new(1))
                 .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_buy supply".into(),
+                    operation: "bonding curve quote_buy mint count".into(),
                 })?;
+            simulated_supply =
+                simulated_supply
+                    .checked_add(Amount::new(1))
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_buy supply".into(),
+                    })?;
         }
 
         if minted.is_zero() {
@@ -372,12 +424,12 @@ impl SubscriptionToken {
             .ok_or(DefiError::Overflow {
                 operation: "bonding curve buy supply".into(),
             })?;
-        self.reserve = self
-            .reserve
-            .checked_add(quote.reserve_added)
-            .ok_or(DefiError::Overflow {
-                operation: "bonding curve buy reserve".into(),
-            })?;
+        self.reserve =
+            self.reserve
+                .checked_add(quote.reserve_added)
+                .ok_or(DefiError::Overflow {
+                    operation: "bonding curve buy reserve".into(),
+                })?;
         self.contributor_funding = self
             .contributor_funding
             .checked_add(quote.contributor_funding)
@@ -419,27 +471,29 @@ impl SubscriptionToken {
         let mut reserve_refund = Amount::ZERO;
 
         for _ in 0..u128_to_usize(token_amount.0)? {
-            simulated_supply = simulated_supply
-                .checked_sub(Amount::new(1))
-                .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_sell supply decrement".into(),
-                })?;
+            simulated_supply =
+                simulated_supply
+                    .checked_sub(Amount::new(1))
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_sell supply decrement".into(),
+                    })?;
             let price = self
                 .curve
                 .marginal_price(simulated_supply, &self.guardrails)?;
-            let reserve_piece =
-                reserve_backed_component(price, self.reserve_ratio_bps)?;
+            let reserve_piece = reserve_backed_component(price, self.reserve_ratio_bps)?;
 
-            gross_curve_value = gross_curve_value
-                .checked_add(price)
-                .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_sell gross value".into(),
-                })?;
-            reserve_refund = reserve_refund
-                .checked_add(reserve_piece)
-                .ok_or(DefiError::Overflow {
-                    operation: "bonding curve quote_sell reserve refund".into(),
-                })?;
+            gross_curve_value =
+                gross_curve_value
+                    .checked_add(price)
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_sell gross value".into(),
+                    })?;
+            reserve_refund =
+                reserve_refund
+                    .checked_add(reserve_piece)
+                    .ok_or(DefiError::Overflow {
+                        operation: "bonding curve quote_sell reserve refund".into(),
+                    })?;
         }
 
         if reserve_refund > self.reserve {
@@ -467,9 +521,11 @@ impl SubscriptionToken {
 
         let quote = self.quote_sell(token_amount)?;
 
-        let updated_balance = balance.checked_sub(token_amount).ok_or(DefiError::Overflow {
-            operation: "bonding curve sell balance".into(),
-        })?;
+        let updated_balance = balance
+            .checked_sub(token_amount)
+            .ok_or(DefiError::Overflow {
+                operation: "bonding curve sell balance".into(),
+            })?;
         if updated_balance.is_zero() {
             self.balances.remove(&seller);
         } else {
@@ -482,18 +538,18 @@ impl SubscriptionToken {
             .ok_or(DefiError::Overflow {
                 operation: "bonding curve sell supply".into(),
             })?;
-        self.reserve = self
-            .reserve
-            .checked_sub(quote.reserve_refund)
-            .ok_or(DefiError::Overflow {
-                operation: "bonding curve sell reserve".into(),
-            })?;
-        self.total_refunds = self
-            .total_refunds
-            .checked_add(quote.reserve_refund)
-            .ok_or(DefiError::Overflow {
-                operation: "bonding curve sell refund volume".into(),
-            })?;
+        self.reserve =
+            self.reserve
+                .checked_sub(quote.reserve_refund)
+                .ok_or(DefiError::Overflow {
+                    operation: "bonding curve sell reserve".into(),
+                })?;
+        self.total_refunds =
+            self.total_refunds
+                .checked_add(quote.reserve_refund)
+                .ok_or(DefiError::Overflow {
+                    operation: "bonding curve sell refund volume".into(),
+                })?;
 
         Ok(quote)
     }
@@ -504,6 +560,32 @@ fn reserve_backed_component(price: Amount, reserve_ratio_bps: u64) -> DefiResult
         .mul_fraction(reserve_ratio_bps as u128, BPS_SCALE as u128)
         .ok_or(DefiError::Overflow {
             operation: "bonding curve reserve-backed component".into(),
+        })
+}
+
+fn sigmoid_price(
+    max_price: Amount,
+    midpoint: Amount,
+    steepness: u8,
+    supply_before_purchase: Amount,
+) -> DefiResult<Amount> {
+    let adjusted_supply =
+        supply_before_purchase
+            .checked_add(Amount::new(1))
+            .ok_or(DefiError::Overflow {
+                operation: "bonding curve sigmoid supply shift".into(),
+            })?;
+    let supply_power = checked_pow(adjusted_supply.0, steepness as u32)?;
+    let midpoint_power = checked_pow(midpoint.0, steepness as u32)?;
+    let denominator = supply_power
+        .checked_add(midpoint_power)
+        .ok_or(DefiError::Overflow {
+            operation: "bonding curve sigmoid denominator".into(),
+        })?;
+    max_price
+        .mul_fraction(supply_power, denominator)
+        .ok_or(DefiError::Overflow {
+            operation: "bonding curve sigmoid price".into(),
         })
 }
 
@@ -559,12 +641,67 @@ mod tests {
         .unwrap()
     }
 
+    fn sigmoid_market() -> SubscriptionToken {
+        SubscriptionToken::new(
+            GeographicRegion::new("us-ca-bay").unwrap(),
+            DataTier::Validated,
+            BondingCurve::Sigmoid {
+                max_price: Amount::new(1_000),
+                midpoint: Amount::new(4),
+                steepness: 2,
+            },
+            3_300,
+            DEFAULT_ACCESS_DURATION_SECS,
+            PricingGuardrails {
+                max_outstanding_supply: Amount::new(10),
+                max_price_multiplier_bps: 200_000,
+            },
+        )
+        .unwrap()
+    }
+
     #[test]
-    fn exponential_curve_is_primary_mode_and_increases_with_supply() {
+    fn sigmoid_curve_matches_the_requested_s_curve_shape() {
+        let market = sigmoid_market();
+        let p0 = market
+            .curve
+            .marginal_price(Amount::ZERO, &market.guardrails)
+            .unwrap();
+        let p1 = market
+            .curve
+            .marginal_price(Amount::new(1), &market.guardrails)
+            .unwrap();
+        let p4 = market
+            .curve
+            .marginal_price(Amount::new(4), &market.guardrails)
+            .unwrap();
+        let p9 = market
+            .curve
+            .marginal_price(Amount::new(9), &market.guardrails)
+            .unwrap();
+
+        assert_eq!(p0, Amount::new(58));
+        assert!(p1 > p0);
+        assert!(p4 > p1);
+        assert!(p9 > p4);
+        assert!(p9 < Amount::new(1_000));
+    }
+
+    #[test]
+    fn exponential_curve_remains_available_for_steeper_launch_profiles() {
         let market = exponential_market();
-        let p0 = market.curve.marginal_price(Amount::ZERO, &market.guardrails).unwrap();
-        let p1 = market.curve.marginal_price(Amount::new(1), &market.guardrails).unwrap();
-        let p2 = market.curve.marginal_price(Amount::new(2), &market.guardrails).unwrap();
+        let p0 = market
+            .curve
+            .marginal_price(Amount::ZERO, &market.guardrails)
+            .unwrap();
+        let p1 = market
+            .curve
+            .marginal_price(Amount::new(1), &market.guardrails)
+            .unwrap();
+        let p2 = market
+            .curve
+            .marginal_price(Amount::new(2), &market.guardrails)
+            .unwrap();
 
         assert_eq!(p0, Amount::new(100));
         assert!(p1 > p0);
