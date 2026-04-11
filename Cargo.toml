@@ -5,6 +5,7 @@ members = [
     "crates/lending",
     "crates/yield-farming",
     "crates/amm",
+    "crates/liquid-staking",
 ]
 
 [workspace.package]
