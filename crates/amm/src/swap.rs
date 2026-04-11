@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use wrfcoin_defi_common::error::{DefiError, DefiResult};
-use wrfcoin_defi_common::types::Amount;
+use wrfcoin_defi_common::types::{Amount, AssetId, Price, Timestamp};
+use wrfcoin_twap_oracle::TwapOracle;
 
 use crate::pool::LiquidityPool;
 
@@ -169,6 +170,43 @@ impl SwapEngine {
             pool.reserve_a = pool.reserve_a.checked_sub(amount_out).ok_or(DefiError::Overflow {
                 operation: "swap reserve_a decrease".into(),
             })?;
+        }
+
+        Ok(amount_out)
+    }
+
+    /// Execute a swap and record a TWAP price observation after the reserves are updated.
+    ///
+    /// The post-swap spot price is computed from the new reserves as `reserve_b / reserve_a`
+    /// (for an A→B swap) and pushed into the oracle accumulator identified by `pool_id`.
+    ///
+    /// The oracle must have been initialised for this pool/asset pair via
+    /// [`TwapOracle::init_pool_asset`] before this method is called; if not, the swap
+    /// still succeeds but no observation is recorded.
+    pub fn execute_swap_with_twap(
+        &self,
+        pool: &mut LiquidityPool,
+        amount_in: Amount,
+        is_a_to_b: bool,
+        min_amount_out: Amount,
+        oracle: &mut TwapOracle,
+        pool_id: &str,
+        timestamp: Timestamp,
+    ) -> DefiResult<Amount> {
+        let amount_out = self.execute_swap(pool, amount_in, is_a_to_b, min_amount_out)?;
+
+        // Derive post-swap spot price from updated reserves.
+        // price = reserve_b / reserve_a (units of B per unit of A).
+        if !pool.reserve_a.is_zero() && !pool.reserve_b.is_zero() {
+            let spot = Price::new(pool.reserve_b.0, pool.reserve_a.0);
+            // Record for asset_a (priced in asset_b).
+            let asset_a: AssetId = pool.asset_a.clone();
+            oracle.record_observation(pool_id, &asset_a, spot, timestamp);
+
+            // Also record the inverse for asset_b (priced in asset_a).
+            let inv_spot = Price::new(pool.reserve_a.0, pool.reserve_b.0);
+            let asset_b: AssetId = pool.asset_b.clone();
+            oracle.record_observation(pool_id, &asset_b, inv_spot, timestamp);
         }
 
         Ok(amount_out)
