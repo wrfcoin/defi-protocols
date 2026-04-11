@@ -5,6 +5,7 @@ members = [
     "crates/lending",
     "crates/yield-farming",
     "crates/amm",
+    "crates/bonding-curve",
     "crates/liquid-staking",
     "crates/twap-oracle",
     "crates/parametric-insurance",
