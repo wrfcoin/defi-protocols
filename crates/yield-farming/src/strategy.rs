@@ -38,6 +38,18 @@ pub struct CompoundingStrategy {
     pub performance_fee_bps: u64,
 }
 
+/// Deterministic inflation projection for stacked reward scenarios.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InflationProjection {
+    pub additive_total: Amount,
+    pub stacked_total: Amount,
+    pub capped_total: Amount,
+    pub boosted_farm_apr_bps: u64,
+    pub boosted_farm_apy_bps: u64,
+    pub capped_farm_apr_bps: u64,
+    pub capped_farm_apy_bps: u64,
+}
+
 impl CompoundingStrategy {
     pub fn new(
         min_compound_threshold: Amount,
@@ -68,6 +80,79 @@ impl CompoundingStrategy {
             operation: "compound fee deduction".into(),
         })?;
         Ok((net, fee))
+    }
+
+    fn approximate_apy_from_apr_bps(&self, apr_bps: u64) -> u64 {
+        let boost = (apr_bps as u128)
+            .checked_mul(apr_bps as u128)
+            .and_then(|value| value.checked_div(20_000))
+            .unwrap_or(0);
+        (apr_bps as u128)
+            .saturating_add(boost)
+            .min(u64::MAX as u128) as u64
+    }
+
+    pub fn project_inflation_path(
+        &self,
+        principal: Amount,
+        l1_yield_bps: u64,
+        farm_base_apr_bps: u64,
+        reward_multiplier_bps: u64,
+        address_multiplier_limit_bps: u64,
+    ) -> DefiResult<InflationProjection> {
+        let boosted_farm_apr_bps = farm_base_apr_bps
+            .checked_mul(reward_multiplier_bps)
+            .and_then(|value| value.checked_div(10_000))
+            .ok_or(DefiError::Overflow {
+                operation: "projection boosted farm apr".into(),
+            })?;
+        let capped_farm_apr_bps = farm_base_apr_bps
+            .checked_mul(reward_multiplier_bps.min(address_multiplier_limit_bps))
+            .and_then(|value| value.checked_div(10_000))
+            .ok_or(DefiError::Overflow {
+                operation: "projection capped farm apr".into(),
+            })?;
+        let boosted_farm_apy_bps = self.approximate_apy_from_apr_bps(boosted_farm_apr_bps);
+        let capped_farm_apy_bps = self.approximate_apy_from_apr_bps(capped_farm_apr_bps);
+
+        let additive_total = principal
+            .checked_add(principal.mul_fraction(l1_yield_bps as u128, 10_000).ok_or(
+                DefiError::Overflow {
+                    operation: "projection additive l1 gain".into(),
+                },
+            )?)
+            .and_then(|value| {
+                value.checked_add(
+                    principal
+                        .mul_fraction(boosted_farm_apr_bps as u128, 10_000)
+                        .expect("boosted_farm_apr_bps denominator is non-zero"),
+                )
+            })
+            .ok_or(DefiError::Overflow {
+                operation: "projection additive total".into(),
+            })?;
+        let stacked_total = principal
+            .mul_fraction(10_000 + l1_yield_bps as u128, 10_000)
+            .and_then(|value| value.mul_fraction(10_000 + boosted_farm_apy_bps as u128, 10_000))
+            .ok_or(DefiError::Overflow {
+                operation: "projection stacked total".into(),
+            })?;
+        let capped_total = principal
+            .mul_fraction(10_000 + l1_yield_bps as u128, 10_000)
+            .and_then(|value| value.mul_fraction(10_000 + capped_farm_apy_bps as u128, 10_000))
+            .ok_or(DefiError::Overflow {
+                operation: "projection capped total".into(),
+            })?;
+
+        Ok(InflationProjection {
+            additive_total,
+            stacked_total,
+            capped_total,
+            boosted_farm_apr_bps,
+            boosted_farm_apy_bps,
+            capped_farm_apr_bps,
+            capped_farm_apy_bps,
+        })
     }
 }
 
@@ -142,27 +227,16 @@ impl YieldStrategy for CompoundingStrategy {
                 operation: "apy apr".into(),
             })?;
 
-        // For a simple compounding estimate with n compounds per year:
-        // APY ~= APR * (1 + small_boost) — use a simple approximation for the scaffold.
-        // Compound boost: APY_bps = APR_bps + APR_bps^2 / (2 * 10_000)
-        let boost = apr_bps
-            .checked_mul(apr_bps)
-            .and_then(|v| v.checked_div(20_000))
-            .unwrap_or(0);
-
-        let apy_bps = apr_bps.saturating_add(boost);
-
-        // Clamp to u64.
-        Ok(apy_bps.min(u64::MAX as u128) as u64)
+        Ok(self.approximate_apy_from_apr_bps(apr_bps.min(u64::MAX as u128) as u64))
     }
 }
 
 impl Default for CompoundingStrategy {
     fn default() -> Self {
         Self::new(
-            Amount::new(1_000_000),   // Min 1M smallest-unit tokens to compound
-            3600,                      // Compound every hour
-            100,                       // 1% performance fee
+            Amount::new(1_000_000), // Min 1M smallest-unit tokens to compound
+            3600,                   // Compound every hour
+            100,                    // 1% performance fee
         )
     }
 }
@@ -170,6 +244,14 @@ impl Default for CompoundingStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Quantified projection table used to document the stacked-inflation envelope.
+    ///
+    /// | Scenario | L1 Yield | Farm APR | Raw Boost | Address Cap | Additive Total | Stacked Total | Capped Total |
+    /// | --- | --- | --- | --- | --- | ---: | ---: | ---: |
+    /// | Launch worst-case | 8.00% | 12.00% | 1.50x | 1.25x | 126000 | 129189 | 125409 |
+    /// | Moderate stacked boost | 6.00% | 10.00% | 1.35x | 1.20x | 119500 | 121274 | 119483 |
+    /// | Conservative utility tilt | 4.00% | 8.00% | 1.20x | 1.15x | 113600 | 114462 | 114004 |
 
     #[test]
     fn test_should_compound_timing() {
@@ -210,7 +292,11 @@ mod tests {
     fn test_calculate_reinvestment_success() {
         let strategy = CompoundingStrategy::new(Amount::new(100), 3600, 100);
         let result = strategy
-            .calculate_reinvestment(Amount::new(10_000), Amount::new(100_000), Timestamp::new(3600))
+            .calculate_reinvestment(
+                Amount::new(10_000),
+                Amount::new(100_000),
+                Timestamp::new(3600),
+            )
             .unwrap();
         // net = 10_000 - 1% fee = 9_900
         assert_eq!(result, Amount::new(9_900));
@@ -234,5 +320,74 @@ mod tests {
             .projected_apy_bps(Amount::new(100), Amount::ZERO, 1, 1, 1, 1)
             .unwrap();
         assert_eq!(apy, 0);
+    }
+
+    #[test]
+    fn test_stacked_emission_path_amplification() {
+        let strategy = CompoundingStrategy::default();
+
+        let projection = strategy
+            .project_inflation_path(Amount::new(100_000), 800, 1_200, 15_000, 12_500)
+            .expect("projection should succeed");
+
+        assert_eq!(projection.boosted_farm_apr_bps, 1_800);
+        assert_eq!(projection.boosted_farm_apy_bps, 1_962);
+        assert_eq!(projection.capped_farm_apr_bps, 1_500);
+        assert_eq!(projection.capped_farm_apy_bps, 1_612);
+        assert_eq!(projection.additive_total, Amount::new(126_000));
+        assert_eq!(projection.stacked_total, Amount::new(129_189));
+        assert_eq!(projection.capped_total, Amount::new(125_409));
+        assert_eq!(
+            projection
+                .stacked_total
+                .checked_sub(projection.additive_total)
+                .expect("stacked total should exceed additive total"),
+            Amount::new(3_189)
+        );
+    }
+
+    #[test]
+    fn test_quantified_inflation_projection_table() {
+        let strategy = CompoundingStrategy::default();
+        let principal = Amount::new(100_000);
+        let scenarios = [
+            (
+                "Launch worst-case",
+                strategy
+                    .project_inflation_path(principal, 800, 1_200, 15_000, 12_500)
+                    .unwrap(),
+                Amount::new(126_000),
+                Amount::new(129_189),
+                Amount::new(125_409),
+            ),
+            (
+                "Moderate stacked boost",
+                strategy
+                    .project_inflation_path(principal, 600, 1_000, 13_500, 12_000)
+                    .unwrap(),
+                Amount::new(119_500),
+                Amount::new(121_274),
+                Amount::new(119_483),
+            ),
+            (
+                "Conservative utility tilt",
+                strategy
+                    .project_inflation_path(principal, 400, 800, 12_000, 11_500)
+                    .unwrap(),
+                Amount::new(113_600),
+                Amount::new(114_462),
+                Amount::new(114_004),
+            ),
+        ];
+
+        for (label, projection, additive_total, stacked_total, capped_total) in scenarios {
+            assert_eq!(projection.additive_total, additive_total, "{label}");
+            assert_eq!(projection.stacked_total, stacked_total, "{label}");
+            assert_eq!(projection.capped_total, capped_total, "{label}");
+            assert!(
+                projection.capped_total <= projection.stacked_total,
+                "{label}"
+            );
+        }
     }
 }

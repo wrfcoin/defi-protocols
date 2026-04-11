@@ -14,6 +14,8 @@ pub struct UtilityRewardHookConfig {
     pub neutral_multiplier_bps: u16,
     /// Maximum multiplier applied to base rewards (e.g. 15000 = 1.5x).
     pub max_multiplier_bps: u16,
+    /// Maximum multiplier any single address can realize over its baseline rewards.
+    pub per_address_multiplier_limit_bps: u16,
     /// Weight assigned to composite usefulness score.
     pub utility_score_weight_bps: u16,
     /// Weight assigned to verified-event ratio score.
@@ -28,6 +30,7 @@ impl Default for UtilityRewardHookConfig {
             min_multiplier_bps: 6_000,
             neutral_multiplier_bps: 10_000,
             max_multiplier_bps: 15_000,
+            per_address_multiplier_limit_bps: 12_500,
             utility_score_weight_bps: 7_000,
             verified_ratio_weight_bps: 3_000,
             utility_linked_threshold_bps: 6_000,
@@ -45,6 +48,13 @@ impl UtilityRewardHookConfig {
         if self.min_multiplier_bps > self.neutral_multiplier_bps {
             return Err(DefiError::InvalidAmount {
                 reason: "min_multiplier_bps must be <= neutral_multiplier_bps".into(),
+            });
+        }
+        if self.per_address_multiplier_limit_bps < self.neutral_multiplier_bps
+            || self.per_address_multiplier_limit_bps > self.max_multiplier_bps
+        {
+            return Err(DefiError::InvalidAmount {
+                reason: "per_address_multiplier_limit_bps must be between neutral and max".into(),
             });
         }
         let total_weight =
@@ -153,6 +163,30 @@ impl UtilityRewardHook {
             .ok_or(DefiError::Overflow {
                 operation: "utility reward hook apply".into(),
             })
+    }
+
+    /// Clamp a candidate multiplier to the configured per-address limit.
+    pub fn cap_multiplier_bps(&self, multiplier_bps: u16, address_limit_bps: u16) -> u16 {
+        multiplier_bps.min(address_limit_bps)
+    }
+
+    /// Apply an address-level multiplier cap to an already weighted reward.
+    pub fn cap_reward(
+        &self,
+        base_reward: Amount,
+        weighted_reward: Amount,
+        address_limit_bps: u16,
+    ) -> DefiResult<Amount> {
+        let capped_multiplier = self.cap_multiplier_bps(
+            self.config.max_multiplier_bps,
+            address_limit_bps.max(self.config.neutral_multiplier_bps),
+        ) as u128;
+        let capped_reward = base_reward
+            .mul_fraction(capped_multiplier, UtilitySignalSnapshot::BPS_SCALE as u128)
+            .ok_or(DefiError::Overflow {
+                operation: "utility reward hook cap".into(),
+            })?;
+        Ok(weighted_reward.min(capped_reward))
     }
 
     /// Whether a signal qualifies rewards as utility-linked.
@@ -270,5 +304,19 @@ mod tests {
             ..Default::default()
         };
         assert!(UtilityRewardHook::with_config(bad).is_err());
+    }
+
+    #[test]
+    fn per_address_cap_clamps_boosted_reward() {
+        let hook = UtilityRewardHook::default();
+        let base_reward = Amount::new(1_000);
+        let weighted_reward = hook.apply(base_reward, &signal(9_000, 9_000)).unwrap();
+
+        let capped = hook
+            .cap_reward(base_reward, weighted_reward, 11_000)
+            .unwrap();
+
+        assert_eq!(capped, Amount::new(1_100));
+        assert!(capped < weighted_reward);
     }
 }
