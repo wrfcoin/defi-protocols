@@ -182,20 +182,21 @@ impl RewardEscrowBook {
         )?;
 
         match outcome {
-            QualityVerificationOutcome::Pending => self.hold_in_escrow(beneficiary, pool_id, amount, timestamp),
+            QualityVerificationOutcome::Pending => {
+                self.hold_in_escrow(beneficiary, pool_id, amount, timestamp)
+            }
             QualityVerificationOutcome::FraudDetected => {
                 self.resolve_fraud(amount, None, beneficiary, pool_id, timestamp)
             }
-            QualityVerificationOutcome::Verified { quality_score_bps } => {
-                self.resolve_verified_score(
+            QualityVerificationOutcome::Verified { quality_score_bps } => self
+                .resolve_verified_score(
                     amount,
                     quality_score_bps,
                     None,
                     beneficiary,
                     pool_id,
                     timestamp,
-                )
-            }
+                ),
         }
     }
 

@@ -1,10 +1,10 @@
 //! Weather futures: open positions, settlement queue, and futures book.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use wrfcoin_defi_common::types::{Address, Amount};
 use crate::error::{DerivativesError, DerivativesResult};
 use crate::index::WeatherIndex;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use wrfcoin_defi_common::types::{Address, Amount};
 
 /// Unique identifier for a weather futures contract definition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -183,7 +183,8 @@ impl FuturesBook {
             return Err(DerivativesError::AlreadySettled { id: future_id.0 });
         }
 
-        let position = FuturePosition::new(future_id, trader, is_long, contracts, entry_price_scaled);
+        let position =
+            FuturePosition::new(future_id, trader, is_long, contracts, entry_price_scaled);
         self.positions.insert((future_id, trader), position);
         Ok(())
     }
@@ -201,15 +202,21 @@ impl FuturesBook {
         self.futures
             .iter()
             .filter(|(_, f)| {
-                matches!(f.status, FutureStatus::Open | FutureStatus::PendingSettlement)
-                    && f.settlement_block <= current_block
+                matches!(
+                    f.status,
+                    FutureStatus::Open | FutureStatus::PendingSettlement
+                ) && f.settlement_block <= current_block
             })
             .map(|(id, _)| *id)
             .collect()
     }
 
     /// Mark a future as pending settlement (observation window closed).
-    pub fn mark_pending(&mut self, future_id: FutureId, current_block: u64) -> DerivativesResult<()> {
+    pub fn mark_pending(
+        &mut self,
+        future_id: FutureId,
+        current_block: u64,
+    ) -> DerivativesResult<()> {
         let future = self
             .futures
             .get_mut(&future_id)
@@ -297,7 +304,8 @@ mod tests {
             .unwrap();
 
         // Long position: entry at 50 CDD
-        book.open_position(id, addr(1), true, 10, 50_000_000).unwrap();
+        book.open_position(id, addr(1), true, 10, 50_000_000)
+            .unwrap();
 
         // Settle at 60 CDD → profit = (60-50) × 10 × 1_000_000 / 1_000_000 = 10_000_000
         let payouts = book.settle(id, 60_000_000).unwrap();
@@ -313,7 +321,8 @@ mod tests {
             .unwrap();
 
         // Short at 80 CDD, settles at 60 CDD → profit = (80-60) × 5 × tick
-        book.open_position(id, addr(2), false, 5, 80_000_000).unwrap();
+        book.open_position(id, addr(2), false, 5, 80_000_000)
+            .unwrap();
         let payouts = book.settle(id, 60_000_000).unwrap();
         assert_eq!(payouts[0].1, 20i128 * 5 * 1_000_000);
     }

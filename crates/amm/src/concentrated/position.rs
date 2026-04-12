@@ -162,7 +162,8 @@ mod tests {
         // Simulate fee growth inside the range: fee_growth_inside increased by 2^64 units
         // (i.e., 1 token per unit of liquidity in Q64.64 terms)
         let fee_growth_delta: u128 = 1u128 << 64; // 1.0 in Q64.64
-        pos.update(0, fee_growth_delta, fee_growth_delta * 2).unwrap();
+        pos.update(0, fee_growth_delta, fee_growth_delta * 2)
+            .unwrap();
         // accrued_0 = (fee_growth_delta - 0) * liquidity >> 64
         //           = (2^64) * 1_000_000 >> 64 = 1_000_000
         // accrued_1 = (2 * 2^64) * 1_000_000 >> 64 = 2_000_000

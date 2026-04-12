@@ -151,9 +151,12 @@ impl ComputeCreditLedger {
         }
 
         let (lineage_root, contributor, parent_generation) = {
-            let lot = self.lots.get_mut(receipt_id).ok_or_else(|| DefiError::InvalidComputeReceipt {
-                reason: format!("unknown receipt lot {}", receipt_id.as_str()),
-            })?;
+            let lot =
+                self.lots
+                    .get_mut(receipt_id)
+                    .ok_or_else(|| DefiError::InvalidComputeReceipt {
+                        reason: format!("unknown receipt lot {}", receipt_id.as_str()),
+                    })?;
 
             if lot.owner != from {
                 return Err(DefiError::Unauthorized {
@@ -172,14 +175,18 @@ impl ComputeCreditLedger {
                 });
             }
 
-            lot.available = lot
-                .available
-                .checked_sub(amount)
-                .ok_or_else(|| DefiError::Overflow {
-                    operation: "compute-credit transfer source lot".into(),
-                })?;
+            lot.available =
+                lot.available
+                    .checked_sub(amount)
+                    .ok_or_else(|| DefiError::Overflow {
+                        operation: "compute-credit transfer source lot".into(),
+                    })?;
             lot.status = status_for(lot.available, lot.reserved, lot.spent, lot.slashed);
-            (lot.lineage_root.clone(), lot.receipt.contributor, lot.transfer_generation)
+            (
+                lot.lineage_root.clone(),
+                lot.receipt.contributor,
+                lot.transfer_generation,
+            )
         };
 
         self.decrement_balance(from, amount)?;
@@ -191,13 +198,13 @@ impl ComputeCreditLedger {
             .and_modify(|counter| *counter += 1)
             .or_insert(1);
 
-        let child_id = ComputeReceiptId::new(format!(
-            "{}::xfer::{}",
-            lineage_root.as_str(),
-            *next_child
-        ));
+        let child_id =
+            ComputeReceiptId::new(format!("{}::xfer::{}", lineage_root.as_str(), *next_child));
 
-        let parent_lot = self.lots.get(receipt_id).expect("parent lot exists after mutation");
+        let parent_lot = self
+            .lots
+            .get(receipt_id)
+            .expect("parent lot exists after mutation");
         let child_receipt = ComputeReceipt {
             id: child_id.clone(),
             contributor,
@@ -227,10 +234,18 @@ impl ComputeCreditLedger {
         Ok(child_id)
     }
 
-    pub fn reserve(&mut self, receipt_id: &ComputeReceiptId, owner: Address, amount: Amount) -> DefiResult<()> {
-        let lot = self.lots.get_mut(receipt_id).ok_or_else(|| DefiError::InvalidComputeReceipt {
-            reason: format!("unknown receipt lot {}", receipt_id.as_str()),
-        })?;
+    pub fn reserve(
+        &mut self,
+        receipt_id: &ComputeReceiptId,
+        owner: Address,
+        amount: Amount,
+    ) -> DefiResult<()> {
+        let lot =
+            self.lots
+                .get_mut(receipt_id)
+                .ok_or_else(|| DefiError::InvalidComputeReceipt {
+                    reason: format!("unknown receipt lot {}", receipt_id.as_str()),
+                })?;
 
         if lot.owner != owner {
             return Err(DefiError::Unauthorized {
@@ -249,20 +264,28 @@ impl ComputeCreditLedger {
             });
         }
 
-        lot.available = lot.available.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit reserve available".into(),
-        })?;
-        lot.reserved = lot.reserved.checked_add(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit reserve held".into(),
-        })?;
+        lot.available = lot
+            .available
+            .checked_sub(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit reserve available".into(),
+            })?;
+        lot.reserved = lot
+            .reserved
+            .checked_add(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit reserve held".into(),
+            })?;
         lot.status = status_for(lot.available, lot.reserved, lot.spent, lot.slashed);
 
         let current_reserved = self.reserved_balance_of(owner);
         self.reserved_balances.insert(
             owner,
-            current_reserved.checked_add(amount).ok_or_else(|| DefiError::Overflow {
-                operation: "compute-credit account reserve".into(),
-            })?,
+            current_reserved
+                .checked_add(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "compute-credit account reserve".into(),
+                })?,
         );
 
         Ok(())
@@ -274,9 +297,12 @@ impl ComputeCreditLedger {
         owner: Address,
         amount: Amount,
     ) -> DefiResult<()> {
-        let lot = self.lots.get_mut(receipt_id).ok_or_else(|| DefiError::InvalidComputeReceipt {
-            reason: format!("unknown receipt lot {}", receipt_id.as_str()),
-        })?;
+        let lot =
+            self.lots
+                .get_mut(receipt_id)
+                .ok_or_else(|| DefiError::InvalidComputeReceipt {
+                    reason: format!("unknown receipt lot {}", receipt_id.as_str()),
+                })?;
 
         if lot.owner != owner {
             return Err(DefiError::Unauthorized {
@@ -290,27 +316,44 @@ impl ComputeCreditLedger {
             });
         }
 
-        lot.reserved = lot.reserved.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit reserved spend".into(),
-        })?;
-        lot.spent = lot.spent.checked_add(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit spent accumulation".into(),
-        })?;
+        lot.reserved = lot
+            .reserved
+            .checked_sub(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit reserved spend".into(),
+            })?;
+        lot.spent = lot
+            .spent
+            .checked_add(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit spent accumulation".into(),
+            })?;
         lot.status = status_for(lot.available, lot.reserved, lot.spent, lot.slashed);
 
         self.decrement_reserved_balance(owner, amount)?;
         self.decrement_balance(owner, amount)?;
-        self.total_supply = self.total_supply.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit total supply spend".into(),
-        })?;
+        self.total_supply =
+            self.total_supply
+                .checked_sub(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "compute-credit total supply spend".into(),
+                })?;
 
         Ok(())
     }
 
-    pub fn burn(&mut self, receipt_id: &ComputeReceiptId, owner: Address, amount: Amount) -> DefiResult<()> {
-        let lot = self.lots.get_mut(receipt_id).ok_or_else(|| DefiError::InvalidComputeReceipt {
-            reason: format!("unknown receipt lot {}", receipt_id.as_str()),
-        })?;
+    pub fn burn(
+        &mut self,
+        receipt_id: &ComputeReceiptId,
+        owner: Address,
+        amount: Amount,
+    ) -> DefiResult<()> {
+        let lot =
+            self.lots
+                .get_mut(receipt_id)
+                .ok_or_else(|| DefiError::InvalidComputeReceipt {
+                    reason: format!("unknown receipt lot {}", receipt_id.as_str()),
+                })?;
 
         if lot.owner != owner {
             return Err(DefiError::Unauthorized {
@@ -324,22 +367,36 @@ impl ComputeCreditLedger {
             });
         }
 
-        lot.available = lot.available.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit burn lot".into(),
-        })?;
+        lot.available = lot
+            .available
+            .checked_sub(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit burn lot".into(),
+            })?;
         lot.status = status_for(lot.available, lot.reserved, lot.spent, lot.slashed);
         self.decrement_balance(owner, amount)?;
-        self.total_supply = self.total_supply.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit total supply burn".into(),
-        })?;
+        self.total_supply =
+            self.total_supply
+                .checked_sub(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "compute-credit total supply burn".into(),
+                })?;
 
         Ok(())
     }
 
-    pub fn slash(&mut self, receipt_id: &ComputeReceiptId, owner: Address, amount: Amount) -> DefiResult<()> {
-        let lot = self.lots.get_mut(receipt_id).ok_or_else(|| DefiError::InvalidComputeReceipt {
-            reason: format!("unknown receipt lot {}", receipt_id.as_str()),
-        })?;
+    pub fn slash(
+        &mut self,
+        receipt_id: &ComputeReceiptId,
+        owner: Address,
+        amount: Amount,
+    ) -> DefiResult<()> {
+        let lot =
+            self.lots
+                .get_mut(receipt_id)
+                .ok_or_else(|| DefiError::InvalidComputeReceipt {
+                    reason: format!("unknown receipt lot {}", receipt_id.as_str()),
+                })?;
 
         if lot.owner != owner {
             return Err(DefiError::Unauthorized {
@@ -353,17 +410,26 @@ impl ComputeCreditLedger {
             });
         }
 
-        lot.available = lot.available.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit slash lot".into(),
-        })?;
-        lot.slashed = lot.slashed.checked_add(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit slashed accumulation".into(),
-        })?;
+        lot.available = lot
+            .available
+            .checked_sub(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit slash lot".into(),
+            })?;
+        lot.slashed = lot
+            .slashed
+            .checked_add(amount)
+            .ok_or_else(|| DefiError::Overflow {
+                operation: "compute-credit slashed accumulation".into(),
+            })?;
         lot.status = status_for(lot.available, lot.reserved, lot.spent, lot.slashed);
         self.decrement_balance(owner, amount)?;
-        self.total_supply = self.total_supply.checked_sub(amount).ok_or_else(|| DefiError::Overflow {
-            operation: "compute-credit total supply slash".into(),
-        })?;
+        self.total_supply =
+            self.total_supply
+                .checked_sub(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "compute-credit total supply slash".into(),
+                })?;
 
         Ok(())
     }
@@ -372,7 +438,9 @@ impl ComputeCreditLedger {
         let expired_ids: Vec<ComputeReceiptId> = self
             .lots
             .iter()
-            .filter(|(_, lot)| lot.receipt.expires_at <= now && (lot.available.0 > 0 || lot.reserved.0 > 0))
+            .filter(|(_, lot)| {
+                lot.receipt.expires_at <= now && (lot.available.0 > 0 || lot.reserved.0 > 0)
+            })
             .map(|(id, _)| id.clone())
             .collect();
 
@@ -396,9 +464,12 @@ impl ComputeCreditLedger {
                 .ok_or_else(|| DefiError::Overflow {
                     operation: "compute-credit expire total".into(),
                 })?;
-            self.total_supply = self.total_supply.checked_sub(burned).ok_or_else(|| DefiError::Overflow {
-                operation: "compute-credit total supply expire".into(),
-            })?;
+            self.total_supply =
+                self.total_supply
+                    .checked_sub(burned)
+                    .ok_or_else(|| DefiError::Overflow {
+                        operation: "compute-credit total supply expire".into(),
+                    })?;
             lot.available = Amount::ZERO;
             lot.reserved = Amount::ZERO;
             lot.status = ComputeCreditStatus::Expired;
@@ -437,32 +508,37 @@ impl ComputeCreditLedger {
     }
 
     fn increment_balance(&mut self, owner: Address, amount: Amount) -> DefiResult<()> {
-        let updated = self
-            .balance_of(owner)
-            .checked_add(amount)
-            .ok_or_else(|| DefiError::Overflow {
-                operation: "compute-credit account balance increment".into(),
-            })?;
+        let updated =
+            self.balance_of(owner)
+                .checked_add(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "compute-credit account balance increment".into(),
+                })?;
         self.balances.insert(owner, updated);
         Ok(())
     }
 
     fn decrement_balance(&mut self, owner: Address, amount: Amount) -> DefiResult<()> {
         let current = self.balance_of(owner);
-        let updated = current.checked_sub(amount).ok_or(DefiError::InsufficientBalance {
-            required: amount,
-            available: current,
-        })?;
+        let updated = current
+            .checked_sub(amount)
+            .ok_or(DefiError::InsufficientBalance {
+                required: amount,
+                available: current,
+            })?;
         self.balances.insert(owner, updated);
         Ok(())
     }
 
     fn decrement_reserved_balance(&mut self, owner: Address, amount: Amount) -> DefiResult<()> {
         let current = self.reserved_balance_of(owner);
-        let updated = current.checked_sub(amount).ok_or(DefiError::InsufficientReservedBalance {
-            required: amount,
-            available: current,
-        })?;
+        let updated =
+            current
+                .checked_sub(amount)
+                .ok_or(DefiError::InsufficientReservedBalance {
+                    required: amount,
+                    available: current,
+                })?;
         self.reserved_balances.insert(owner, updated);
         Ok(())
     }
@@ -497,7 +573,12 @@ mod tests {
         Address([byte; 32])
     }
 
-    fn receipt(id: &str, contributor: Address, beneficiary: Address, credits: u128) -> ComputeReceipt {
+    fn receipt(
+        id: &str,
+        contributor: Address,
+        beneficiary: Address,
+        credits: u128,
+    ) -> ComputeReceipt {
         ComputeReceipt {
             id: ComputeReceiptId::new(id),
             contributor,
@@ -517,7 +598,10 @@ mod tests {
 
         ledger.mint_from_receipt(r.clone()).unwrap();
         let duplicate = ledger.mint_from_receipt(r).unwrap_err();
-        assert!(matches!(duplicate, DefiError::DuplicateComputeReceipt { .. }));
+        assert!(matches!(
+            duplicate,
+            DefiError::DuplicateComputeReceipt { .. }
+        ));
         assert_eq!(ledger.total_supply(), Amount::new(500));
         assert_eq!(ledger.balance_of(addr(2)), Amount::new(500));
     }
@@ -532,7 +616,9 @@ mod tests {
         assert_eq!(ledger.balance_of(addr(2)), Amount::new(400));
         assert_eq!(ledger.reserved_balance_of(addr(2)), Amount::new(150));
 
-        ledger.spend_reserved(&r.id, addr(2), Amount::new(100)).unwrap();
+        ledger
+            .spend_reserved(&r.id, addr(2), Amount::new(100))
+            .unwrap();
 
         let lot = ledger.lot(&r.id).unwrap();
         assert_eq!(lot.available, Amount::new(250));
@@ -556,7 +642,9 @@ mod tests {
         assert_eq!(ledger.balance_of(addr(3)), Amount::new(200));
         assert_eq!(ledger.lot(&child_id).unwrap().owner, addr(3));
 
-        let abuse = ledger.transfer(&child_id, addr(3), addr(1), Amount::new(50)).unwrap_err();
+        let abuse = ledger
+            .transfer(&child_id, addr(3), addr(1), Amount::new(50))
+            .unwrap_err();
         assert!(matches!(abuse, DefiError::ComputeCreditAbuse { .. }));
     }
 
@@ -573,7 +661,10 @@ mod tests {
         assert_eq!(expired, vec![r.id.clone()]);
         assert_eq!(ledger.balance_of(addr(2)), Amount::ZERO);
         assert_eq!(ledger.total_supply(), Amount::ZERO);
-        assert_eq!(ledger.lot(&r.id).unwrap().status, ComputeCreditStatus::Expired);
+        assert_eq!(
+            ledger.lot(&r.id).unwrap().status,
+            ComputeCreditStatus::Expired
+        );
     }
 
     #[test]
@@ -610,16 +701,15 @@ mod tests {
         let mut minted_total = Amount::ZERO;
 
         for idx in 0..5 {
-            let r = receipt(
-                &format!("receipt-sim-{idx}"),
-                addr(1),
-                beneficiary,
-                1_000,
-            );
+            let r = receipt(&format!("receipt-sim-{idx}"), addr(1), beneficiary, 1_000);
             minted_total = minted_total.checked_add(r.credits).unwrap();
             ledger.mint_from_receipt(r.clone()).unwrap();
-            ledger.reserve(&r.id, beneficiary, Amount::new(200)).unwrap();
-            ledger.spend_reserved(&r.id, beneficiary, Amount::new(150)).unwrap();
+            ledger
+                .reserve(&r.id, beneficiary, Amount::new(200))
+                .unwrap();
+            ledger
+                .spend_reserved(&r.id, beneficiary, Amount::new(150))
+                .unwrap();
             ledger.slash(&r.id, beneficiary, Amount::new(100)).unwrap();
         }
 

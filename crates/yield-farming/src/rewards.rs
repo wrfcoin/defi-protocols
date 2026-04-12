@@ -39,7 +39,9 @@ impl VestingSchedule {
         }
 
         // Linear: total * elapsed / duration
-        let vested = (self.total.0 as u128)
+        let vested = self
+            .total
+            .0
             .checked_mul(elapsed as u128)
             .and_then(|v| v.checked_div(self.duration_secs as u128))
             .unwrap_or(0);
@@ -61,9 +63,12 @@ impl VestingSchedule {
                 reason: "nothing to claim at this time".into(),
             });
         }
-        self.claimed = self.claimed.checked_add(claimable).ok_or(DefiError::Overflow {
-            operation: "vesting claim".into(),
-        })?;
+        self.claimed = self
+            .claimed
+            .checked_add(claimable)
+            .ok_or(DefiError::Overflow {
+                operation: "vesting claim".into(),
+            })?;
         Ok(claimable)
     }
 
@@ -104,10 +109,7 @@ impl RewardCalculator {
             return Amount::ZERO;
         }
 
-        let accumulated = user_staked
-            .0
-            .saturating_mul(acc_reward_per_share)
-            / precision;
+        let accumulated = user_staked.0.saturating_mul(acc_reward_per_share) / precision;
 
         Amount(accumulated.saturating_sub(user_reward_debt))
     }

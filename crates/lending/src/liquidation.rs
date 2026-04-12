@@ -66,21 +66,25 @@ impl LiquidationEngine {
         })?;
 
         let bonus_multiplier = 10_000u128 + self.liquidation_bonus_bps as u128;
-        let rewarded_value = debt_value
-            .mul_fraction(bonus_multiplier, 10_000)
-            .ok_or(DefiError::Overflow {
-                operation: "liquidation bonus".into(),
-            })?;
+        let rewarded_value =
+            debt_value
+                .mul_fraction(bonus_multiplier, 10_000)
+                .ok_or(DefiError::Overflow {
+                    operation: "liquidation bonus".into(),
+                })?;
 
         let inverse_price = collateral_price.inverse().ok_or(DefiError::OracleError {
             message: "collateral price is zero".into(),
         })?;
 
-        inverse_price.apply(rewarded_value).ok_or(DefiError::Overflow {
-            operation: "liquidation collateral conversion".into(),
-        })
+        inverse_price
+            .apply(rewarded_value)
+            .ok_or(DefiError::Overflow {
+                operation: "liquidation collateral conversion".into(),
+            })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn liquidate(
         &self,
         _liquidator: Address,
@@ -108,8 +112,7 @@ impl LiquidationEngine {
         if repay_amount > max_repay {
             return Err(DefiError::InvalidAmount {
                 reason: format!(
-                    "repay amount {} exceeds max liquidation amount {}",
-                    repay_amount, max_repay
+                    "repay amount {repay_amount} exceeds max liquidation amount {max_repay}"
                 ),
             });
         }
@@ -176,7 +179,9 @@ mod tests {
     fn test_check_liquidatable() {
         let (cm, oracle) = setup_undercollateralized();
         let engine = LiquidationEngine::default();
-        assert!(engine.check_liquidatable(&addr(1), &cm, &oracle).expect("check_liquidatable should succeed"));
+        assert!(engine
+            .check_liquidatable(&addr(1), &cm, &oracle)
+            .expect("check_liquidatable should succeed"));
     }
 
     #[test]
@@ -195,13 +200,17 @@ mod tests {
         oracle.set_price_at(asset("USDC"), Price::from_integer(1), Timestamp::new(1));
 
         let engine = LiquidationEngine::default();
-        assert!(!engine.check_liquidatable(&addr(1), &cm, &oracle).expect("check_liquidatable should succeed"));
+        assert!(!engine
+            .check_liquidatable(&addr(1), &cm, &oracle)
+            .expect("check_liquidatable should succeed"));
     }
 
     #[test]
     fn test_calculate_liquidation_amount() {
         let engine = LiquidationEngine::default();
-        let max = engine.calculate_liquidation_amount(Amount::new(1000)).expect("liquidation amount calculation should succeed");
+        let max = engine
+            .calculate_liquidation_amount(Amount::new(1000))
+            .expect("liquidation amount calculation should succeed");
         assert_eq!(max, Amount::new(500));
     }
 

@@ -6,8 +6,8 @@ use crate::market::ForecastMarket;
 use crate::payout::{PayoutEngine, PayoutResult};
 use crate::position::PositionLedger;
 use crate::resolution::{ForecastVerificationReceipt, ResolutionEngine, ResolutionResult};
-use wrfcoin_defi_common::types::Amount;
 use wrfcoin_amm::fees::FeeManager;
+use wrfcoin_defi_common::types::Amount;
 
 /// Top-level prediction market engine: holds all markets, the position ledger,
 /// and the fee manager for protocol fee accounting.
@@ -69,15 +69,16 @@ impl PredictionMarketEngine {
 
         // Update market state.
         market.q[outcome_index] += delta;
-        market.total_stake = market
-            .total_stake
-            .checked_add(cost_amount)
-            .ok_or_else(|| PredictionError::Overflow {
+        market.total_stake = market.total_stake.checked_add(cost_amount).ok_or_else(|| {
+            PredictionError::Overflow {
                 operation: "total_stake accumulation".into(),
-            })?;
+            }
+        })?;
 
         // Update user position.
-        let pos = self.ledger.get_or_create_mut(user, market_id, outcome_index);
+        let pos = self
+            .ledger
+            .get_or_create_mut(user, market_id, outcome_index);
         pos.add_shares(delta, cost_amount);
 
         Ok(cost_amount)
@@ -95,13 +96,12 @@ impl PredictionMarketEngine {
     ) -> PredictionResult<Amount> {
         // Check user has enough shares.
         {
-            let pos = self
-                .ledger
-                .get(&user, market_id, outcome_index)
-                .ok_or(PredictionError::PositionNotFound {
+            let pos = self.ledger.get(&user, market_id, outcome_index).ok_or(
+                PredictionError::PositionNotFound {
                     market_id,
                     outcome_index,
-                })?;
+                },
+            )?;
             if pos.shares < delta {
                 return Err(PredictionError::InsufficientFunds {
                     required: delta as u128,
@@ -131,7 +131,9 @@ impl PredictionMarketEngine {
             .unwrap_or(Amount::ZERO);
 
         // Update user position.
-        let pos = self.ledger.get_or_create_mut(user, market_id, outcome_index);
+        let pos = self
+            .ledger
+            .get_or_create_mut(user, market_id, outcome_index);
         pos.remove_shares(delta);
 
         Ok(proceeds_amount)
@@ -189,7 +191,11 @@ mod tests {
         PredictionMarketEngine::new(1667)
     }
 
-    fn add_binary_market(engine: &mut PredictionMarketEngine, resolution_height: u64, threshold: f64) -> u64 {
+    fn add_binary_market(
+        engine: &mut PredictionMarketEngine,
+        resolution_height: u64,
+        threshold: f64,
+    ) -> u64 {
         let market = ForecastMarket::new_binary(
             0, // id assigned by engine
             [0u8; 32],
@@ -236,7 +242,10 @@ mod tests {
         let cost2 = engine.buy_outcome(mid, 0, 10.0, addr(2)).unwrap();
         let cost3 = engine.buy_outcome(mid, 0, 10.0, addr(3)).unwrap();
 
-        assert!(cost2 >= cost1, "successive buys should cost at least as much");
+        assert!(
+            cost2 >= cost1,
+            "successive buys should cost at least as much"
+        );
         assert!(cost3 >= cost2, "LMSR cost is convex");
     }
 
@@ -254,8 +263,14 @@ mod tests {
         let p_yes_after = engine.price(mid, 0).unwrap();
         let p_no_after = engine.price(mid, 1).unwrap();
 
-        assert!(p_yes_after > p_yes_before, "Yes price should rise after buying Yes");
-        assert!(p_no_after < p_no_before, "No price should fall after buying Yes");
+        assert!(
+            p_yes_after > p_yes_before,
+            "Yes price should rise after buying Yes"
+        );
+        assert!(
+            p_no_after < p_no_before,
+            "No price should fall after buying Yes"
+        );
     }
 
     // Test 3: Resolution with RMSE=1.5 < threshold=2.0 → Yes; RMSE=2.5 → No.
@@ -264,11 +279,15 @@ mod tests {
         let mut engine = default_engine();
 
         let mid_yes = add_binary_market(&mut engine, 50, 2.0);
-        let r_yes = engine.resolve_market(mid_yes, &receipt(1.5, 50), 50).unwrap();
+        let r_yes = engine
+            .resolve_market(mid_yes, &receipt(1.5, 50), 50)
+            .unwrap();
         assert_eq!(r_yes.winning_outcome, 0, "RMSE 1.5 < 2.0 should be Yes");
 
         let mid_no = add_binary_market(&mut engine, 50, 2.0);
-        let r_no = engine.resolve_market(mid_no, &receipt(2.5, 50), 50).unwrap();
+        let r_no = engine
+            .resolve_market(mid_no, &receipt(2.5, 50), 50)
+            .unwrap();
         assert_eq!(r_no.winning_outcome, 1, "RMSE 2.5 >= 2.0 should be No");
     }
 
@@ -346,9 +365,7 @@ mod tests {
 
         assert!(
             high_payout > low_payout,
-            "higher accuracy score should yield higher payout: low={} high={}",
-            low_payout,
-            high_payout
+            "higher accuracy score should yield higher payout: low={low_payout} high={high_payout}"
         );
     }
 
@@ -357,7 +374,9 @@ mod tests {
     fn test_resolution_too_early() {
         let mut engine = default_engine();
         let mid = add_binary_market(&mut engine, 200, 2.0);
-        let err = engine.resolve_market(mid, &receipt(1.0, 100), 100).unwrap_err();
+        let err = engine
+            .resolve_market(mid, &receipt(1.0, 100), 100)
+            .unwrap_err();
         assert!(matches!(err, PredictionError::ResolutionTooEarly { .. }));
     }
 
@@ -367,7 +386,9 @@ mod tests {
         let mut engine = default_engine();
         let mid = add_binary_market(&mut engine, 100, 2.0);
         engine.resolve_market(mid, &receipt(1.5, 100), 100).unwrap();
-        let err = engine.resolve_market(mid, &receipt(1.5, 100), 100).unwrap_err();
+        let err = engine
+            .resolve_market(mid, &receipt(1.5, 100), 100)
+            .unwrap_err();
         assert!(matches!(err, PredictionError::AlreadyResolved { .. }));
     }
 }

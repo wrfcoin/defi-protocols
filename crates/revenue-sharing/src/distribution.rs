@@ -1,8 +1,8 @@
-use wrfcoin_defi_common::types::{Amount, Address};
 use crate::error::{RevenueError, RevenueResult};
 use crate::pool::RevenuePool;
 use crate::registry::DataContributorRegistry;
 use serde::{Deserialize, Serialize};
+use wrfcoin_defi_common::types::{Address, Amount};
 
 /// A single contributor's payout from an epoch distribution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -115,7 +115,10 @@ mod tests {
         let result = distribute_epoch(&mut pool, &registry, 100);
         assert!(matches!(
             result,
-            Err(RevenueError::DistributionTooEarly { current: 100, next: 7_200 })
+            Err(RevenueError::DistributionTooEarly {
+                current: 100,
+                next: 7_200
+            })
         ));
     }
 
@@ -210,11 +213,17 @@ mod tests {
         assert_eq!(epoch.total_distributed, Amount::new(10_000_000));
 
         let total: u128 = epoch.payouts.iter().map(|p| p.amount.0).sum();
-        assert_eq!(total, 10_000_000, "all funds must be distributed without loss");
+        assert_eq!(
+            total, 10_000_000,
+            "all funds must be distributed without loss"
+        );
 
         // All payouts must be positive
         for payout in &epoch.payouts {
-            assert!(payout.amount.0 > 0, "each contributor should receive something");
+            assert!(
+                payout.amount.0 > 0,
+                "each contributor should receive something"
+            );
         }
     }
 

@@ -54,9 +54,7 @@ impl SqrtPrice {
         // For our range (|tick| <= 500) hi <= 1, so hi^2 * 2^64 is at most 2^64
         let hi_sq_part = hi.checked_mul(hi)?.checked_mul(Q64)?;
         let mid_part = mid.checked_mul(2)?;
-        hi_sq_part
-            .checked_add(mid_part)?
-            .checked_add(lo_sq_shifted)
+        hi_sq_part.checked_add(mid_part)?.checked_add(lo_sq_shifted)
     }
 
     /// Multiply two Q64.64 sqrt prices together (used in range math).
@@ -107,7 +105,7 @@ pub fn tick_to_sqrt_price(tick: i32) -> SqrtPrice {
         return SqrtPrice::ONE;
     }
 
-    let abs_tick = tick.unsigned_abs() as u32;
+    let abs_tick = tick.unsigned_abs();
 
     // Compute price = 1.0001^abs_tick in Q64.64 fixed-point.
     // Start with 1.0 in Q64.64 = 2^64.
@@ -116,7 +114,7 @@ pub fn tick_to_sqrt_price(tick: i32) -> SqrtPrice {
     for _ in 0..abs_tick {
         // price_q64 = price_q64 * 10001 / 10000
         // Use u128 checked arithmetic; for |tick| <= 500 no overflow occurs.
-        price_q64 = (price_q64 as u128)
+        price_q64 = price_q64
             .checked_mul(TICK_BASE_BPS)
             .and_then(|v| v.checked_div(TICK_BASE_DENOM))
             .unwrap_or(u128::MAX);
@@ -174,7 +172,7 @@ fn integer_sqrt_u128(n: u128) -> u128 {
         return 0;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = (x + n / x) / 2;
@@ -189,21 +187,31 @@ mod tests {
     #[test]
     fn test_tick_zero_is_one() {
         let sp = tick_to_sqrt_price(0);
-        assert_eq!(sp, SqrtPrice::ONE, "tick 0 must map to sqrt_price = 2^64 (Q64.64 1.0)");
+        assert_eq!(
+            sp,
+            SqrtPrice::ONE,
+            "tick 0 must map to sqrt_price = 2^64 (Q64.64 1.0)"
+        );
     }
 
     #[test]
     fn test_positive_tick_greater_than_zero() {
         let sp0 = tick_to_sqrt_price(0);
         let sp1 = tick_to_sqrt_price(1);
-        assert!(sp1 > sp0, "tick 1 must produce a larger sqrt_price than tick 0");
+        assert!(
+            sp1 > sp0,
+            "tick 1 must produce a larger sqrt_price than tick 0"
+        );
     }
 
     #[test]
     fn test_negative_tick_less_than_zero() {
         let sp0 = tick_to_sqrt_price(0);
         let sp_neg = tick_to_sqrt_price(-1);
-        assert!(sp_neg < sp0, "tick -1 must produce a smaller sqrt_price than tick 0");
+        assert!(
+            sp_neg < sp0,
+            "tick -1 must produce a smaller sqrt_price than tick 0"
+        );
     }
 
     #[test]
@@ -224,9 +232,7 @@ mod tests {
             // Allow ±1 tick due to integer rounding
             assert!(
                 (recovered - t).abs() <= 1,
-                "round-trip failed for tick {}: got {}",
-                t,
-                recovered
+                "round-trip failed for tick {t}: got {recovered}"
             );
         }
     }
