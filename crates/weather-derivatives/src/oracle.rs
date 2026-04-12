@@ -1,8 +1,8 @@
 //! Weather oracle trait and in-memory test implementation.
 
-use std::collections::HashMap;
 use crate::error::{DerivativesError, DerivativesResult};
 use crate::index::GeographicRegion;
+use std::collections::HashMap;
 
 /// An oracle-attested weather reading for a region at a block height.
 /// The `value_scaled` field is scaled by 1_000_000.
@@ -17,11 +17,7 @@ pub struct OracleAttestment {
 /// Trait for weather oracle providers.
 pub trait WeatherOracle {
     /// Returns the attested reading for a region at (or aggregated over) a given block.
-    fn get_reading(
-        &self,
-        region: &GeographicRegion,
-        block: u64,
-    ) -> DerivativesResult<i64>;
+    fn get_reading(&self, region: &GeographicRegion, block: u64) -> DerivativesResult<i64>;
 }
 
 /// Simple in-memory oracle for unit tests.
@@ -37,7 +33,8 @@ impl InMemoryOracle {
 
     /// Register a reading for a region + block.
     pub fn set(&mut self, region: &GeographicRegion, block: u64, value_scaled: i64) {
-        self.readings.insert((region.0.clone(), block), value_scaled);
+        self.readings
+            .insert((region.0.clone(), block), value_scaled);
     }
 }
 

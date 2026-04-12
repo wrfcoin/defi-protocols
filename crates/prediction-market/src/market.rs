@@ -107,6 +107,7 @@ pub struct ForecastMarket {
 
 impl ForecastMarket {
     /// Create a new Binary market.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_binary(
         id: u64,
         forecast_manifest_hash: [u8; 32],
@@ -138,6 +139,7 @@ impl ForecastMarket {
     }
 
     /// Create a new Scalar market.
+    #[allow(clippy::too_many_arguments)]
     pub fn new_scalar(
         id: u64,
         forecast_manifest_hash: [u8; 32],

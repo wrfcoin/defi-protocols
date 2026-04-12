@@ -30,11 +30,7 @@ impl Tick {
 
     /// Update fee_growth_outside values when this tick is crossed.
     /// Crossing flips the "outside" reference: outside becomes inside and vice versa.
-    pub fn cross(
-        &mut self,
-        fee_growth_global_0: u128,
-        fee_growth_global_1: u128,
-    ) {
+    pub fn cross(&mut self, fee_growth_global_0: u128, fee_growth_global_1: u128) {
         self.fee_growth_outside_0 = fee_growth_global_0.wrapping_sub(self.fee_growth_outside_0);
         self.fee_growth_outside_1 = fee_growth_global_1.wrapping_sub(self.fee_growth_outside_1);
     }
@@ -77,16 +73,10 @@ impl TickBitmap {
     pub fn next_initialized_tick(&self, from: i32, zero_for_one: bool) -> Option<i32> {
         if zero_for_one {
             // Moving price down: look for highest tick < from
-            self.initialized
-                .range(..from)
-                .next_back()
-                .map(|(&t, _)| t)
+            self.initialized.range(..from).next_back().map(|(&t, _)| t)
         } else {
             // Moving price up: look for lowest tick > from
-            self.initialized
-                .range((from + 1)..)
-                .next()
-                .map(|(&t, _)| t)
+            self.initialized.range((from + 1)..).next().map(|(&t, _)| t)
         }
     }
 
@@ -163,8 +153,7 @@ pub fn liquidity_to_amounts(
         // Price below range: only token0
         // amount0 = L * (sqrt_upper - sqrt_lower) / (sqrt_upper * sqrt_lower / Q64)
         // = L * (sqrt_upper - sqrt_lower) * Q64 / (sqrt_upper * sqrt_lower)
-        let numerator = liquidity
-            .saturating_mul(sqrt_price_upper.saturating_sub(sqrt_price_lower));
+        let numerator = liquidity.saturating_mul(sqrt_price_upper.saturating_sub(sqrt_price_lower));
         // Divide by sqrt_lower first to reduce overflow, then by sqrt_upper
         let denom_lower = sqrt_price_lower.max(1);
         let denom_upper = sqrt_price_upper.max(1);
@@ -193,8 +182,7 @@ pub fn liquidity_to_amounts(
             .unwrap_or_else(|| num0 / denom0_lower / (denom0_upper >> 32).max(1));
 
         // amount1 = L * (sqrt_current - sqrt_lower) / Q64
-        let amount1 = liquidity
-            .saturating_mul(sqrt_price_current.saturating_sub(sqrt_price_lower))
+        let amount1 = liquidity.saturating_mul(sqrt_price_current.saturating_sub(sqrt_price_lower))
             / (1u128 << 32)
             / (1u128 << 32);
 
@@ -228,9 +216,7 @@ pub fn compute_swap_step(
 
     // Apply fee: amount_in_after_fee = amount_remaining * (10000 - fee_bps) / 10000
     let fee_complement = 10_000u128 - fee_bps as u128;
-    let amount_after_fee = amount_remaining
-        .saturating_mul(fee_complement)
-        / 10_000;
+    let amount_after_fee = amount_remaining.saturating_mul(fee_complement) / 10_000;
 
     let (sqrt_price_next, amount_in, amount_out) = if zero_for_one {
         // Selling token0 → price decreases
@@ -240,11 +226,13 @@ pub fn compute_swap_step(
             amount_in_for_price_move_0(sqrt_price_current, sqrt_price_target, liquidity);
         if amount_after_fee >= amount_in_calc {
             // We'll reach the target price exactly
-            let amount_out = amount_out_for_price_move_1(sqrt_price_current, sqrt_price_target, liquidity);
+            let amount_out =
+                amount_out_for_price_move_1(sqrt_price_current, sqrt_price_target, liquidity);
             (sqrt_price_target, amount_in_calc, amount_out)
         } else {
             // Partial fill: compute how far price moves with amount_after_fee of token0
-            let next = new_sqrt_price_from_amount0(sqrt_price_current, liquidity, amount_after_fee, true);
+            let next =
+                new_sqrt_price_from_amount0(sqrt_price_current, liquidity, amount_after_fee, true);
             let amount_out = amount_out_for_price_move_1(sqrt_price_current, next, liquidity);
             (next, amount_after_fee, amount_out)
         }
@@ -253,18 +241,19 @@ pub fn compute_swap_step(
         let amount_in_calc =
             amount_in_for_price_move_1(sqrt_price_current, sqrt_price_target, liquidity);
         if amount_after_fee >= amount_in_calc {
-            let amount_out = amount_out_for_price_move_0(sqrt_price_current, sqrt_price_target, liquidity);
+            let amount_out =
+                amount_out_for_price_move_0(sqrt_price_current, sqrt_price_target, liquidity);
             (sqrt_price_target, amount_in_calc, amount_out)
         } else {
-            let next = new_sqrt_price_from_amount1(sqrt_price_current, liquidity, amount_after_fee, false);
+            let next =
+                new_sqrt_price_from_amount1(sqrt_price_current, liquidity, amount_after_fee, false);
             let amount_out = amount_out_for_price_move_0(sqrt_price_current, next, liquidity);
             (next, amount_after_fee, amount_out)
         }
     };
 
     // fee_amount = amount_in * fee_bps / (10000 - fee_bps)  (on top of the amount)
-    let fee_amount = amount_in.saturating_mul(fee_bps as u128)
-        / fee_complement.max(1);
+    let fee_amount = amount_in.saturating_mul(fee_bps as u128) / fee_complement.max(1);
 
     (sqrt_price_next, amount_in, amount_out, fee_amount)
 }
@@ -308,7 +297,12 @@ fn amount_out_for_price_move_0(sqrt_a: u128, sqrt_b: u128, liquidity: u128) -> u
 
 /// Compute new sqrt_price after adding `amount` of token0 to a range.
 /// If `add` is true (selling token0), price decreases.
-fn new_sqrt_price_from_amount0(sqrt_price: u128, liquidity: u128, amount: u128, _add: bool) -> u128 {
+fn new_sqrt_price_from_amount0(
+    sqrt_price: u128,
+    liquidity: u128,
+    amount: u128,
+    _add: bool,
+) -> u128 {
     // new_sqrt = L * sqrt_price / (L + amount * sqrt_price / Q64)
     // = L * Q64 / (L * Q64 / sqrt_price + amount)
     if liquidity == 0 {
@@ -325,7 +319,12 @@ fn new_sqrt_price_from_amount0(sqrt_price: u128, liquidity: u128, amount: u128, 
 
 /// Compute new sqrt_price after adding `amount` of token1 to a range.
 /// Price increases.
-fn new_sqrt_price_from_amount1(sqrt_price: u128, liquidity: u128, amount: u128, _add: bool) -> u128 {
+fn new_sqrt_price_from_amount1(
+    sqrt_price: u128,
+    liquidity: u128,
+    amount: u128,
+    _add: bool,
+) -> u128 {
     // new_sqrt = sqrt_price + amount * Q64 / L
     if liquidity == 0 {
         return sqrt_price;
@@ -408,7 +407,10 @@ mod tests {
         let current = tick_to_sqrt_price(5).0; // below range
         let (amount0, amount1) = liquidity_to_amounts(1_000_000, current, lower, upper);
         assert!(amount0 > 0, "should need token0 when price is below range");
-        assert_eq!(amount1, 0, "should need zero token1 when price is below range");
+        assert_eq!(
+            amount1, 0,
+            "should need zero token1 when price is below range"
+        );
     }
 
     #[test]
@@ -418,7 +420,10 @@ mod tests {
         let upper = tick_to_sqrt_price(20).0;
         let current = tick_to_sqrt_price(25).0; // above range
         let (amount0, amount1) = liquidity_to_amounts(1_000_000, current, lower, upper);
-        assert_eq!(amount0, 0, "should need zero token0 when price is above range");
+        assert_eq!(
+            amount0, 0,
+            "should need zero token0 when price is above range"
+        );
         assert!(amount1 > 0, "should need token1 when price is above range");
     }
 

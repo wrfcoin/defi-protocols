@@ -15,7 +15,10 @@ pub struct GeoCoordinate {
 
 impl GeoCoordinate {
     pub fn new(latitude: f64, longitude: f64) -> Self {
-        Self { latitude, longitude }
+        Self {
+            latitude,
+            longitude,
+        }
     }
 
     /// Returns a simple region key string for geographic diversification tracking.
@@ -23,7 +26,7 @@ impl GeoCoordinate {
     pub fn region_key(&self) -> String {
         let lat_bucket = (self.latitude / 10.0).floor() as i32 * 10;
         let lon_bucket = (self.longitude / 10.0).floor() as i32 * 10;
-        format!("{},{}", lat_bucket, lon_bucket)
+        format!("{lat_bucket},{lon_bucket}")
     }
 }
 

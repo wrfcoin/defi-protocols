@@ -149,12 +149,14 @@ mod tests {
     #[test]
     fn premium_calculation_with_history() {
         let mut pricing = PremiumPricing::new(2000, 500); // 20% loading, 5% default
-        // 20 triggers in 100 periods → 20% frequency
+                                                          // 20 triggers in 100 periods → 20% frequency
         pricing.add_record(HistoricalRecord::new("TemperatureAbove", "40,-70", 20, 100));
 
         let payout = Amount::new(10_000_000); // 0.1 WRF
         let trigger = WeatherTrigger::TemperatureAbove(35.0);
-        let premium = pricing.calculate_premium(payout, &trigger, "40,-70").unwrap();
+        let premium = pricing
+            .calculate_premium(payout, &trigger, "40,-70")
+            .unwrap();
 
         // expected_loss = 10_000_000 × 2000/10_000 = 2_000_000
         // premium = 2_000_000 × 12_000/10_000 = 2_400_000
@@ -166,7 +168,9 @@ mod tests {
         let pricing = PremiumPricing::new(1000, 500); // 10% loading, 5% default frequency
         let payout = Amount::new(100_000_000); // 1 WRF
         let trigger = WeatherTrigger::WindSpeedAbove(25.0);
-        let premium = pricing.calculate_premium(payout, &trigger, "no-data-region").unwrap();
+        let premium = pricing
+            .calculate_premium(payout, &trigger, "no-data-region")
+            .unwrap();
 
         // expected_loss = 100_000_000 × 500/10_000 = 5_000_000
         // premium = 5_000_000 × 11_000/10_000 = 5_500_000
@@ -187,7 +191,9 @@ mod tests {
         let pricing = PremiumPricing::new(1000, 0); // 0 default frequency
         let payout = Amount::new(1);
         let trigger = WeatherTrigger::TemperatureAbove(35.0);
-        let premium = pricing.calculate_premium(payout, &trigger, "no-data-region").unwrap();
+        let premium = pricing
+            .calculate_premium(payout, &trigger, "no-data-region")
+            .unwrap();
         assert_eq!(premium, Amount::new(1));
     }
 

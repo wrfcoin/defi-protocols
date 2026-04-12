@@ -119,9 +119,7 @@ impl FarmManager {
         timestamp: Timestamp,
     ) -> DefiResult<usize> {
         if self.blocked_lp_tokens.contains(&lp_token) {
-            return Err(DefiError::InvalidAsset {
-                asset_id: lp_token,
-            });
+            return Err(DefiError::InvalidAsset { asset_id: lp_token });
         }
         let pool_id = PoolId::new(self.pools.len() as u64);
         self.pools.push(FarmPool {
@@ -136,9 +134,7 @@ impl FarmManager {
         });
         self.total_alloc_point += alloc_point;
         let pool_index = self.pools.len() - 1;
-        self.pool_utility_signals
-            .entry(pool_index)
-            .or_insert_with(UtilitySignalSnapshot::default);
+        self.pool_utility_signals.entry(pool_index).or_default();
         Ok(pool_index)
     }
 
@@ -1024,10 +1020,14 @@ mod tests {
         fm.block_derivative_token(AssetId::new("vaultLP-stWRF"));
 
         assert!(fm.add_pool(AssetId::new("stWRF"), 50, ts(0)).is_err());
-        assert!(fm.add_pool(AssetId::new("vaultLP-stWRF"), 50, ts(0)).is_err());
+        assert!(fm
+            .add_pool(AssetId::new("vaultLP-stWRF"), 50, ts(0))
+            .is_err());
 
         // Normal tokens still work
-        let idx = fm.add_pool(AssetId::new("LP-WRF-USDC"), 100, ts(0)).unwrap();
+        let idx = fm
+            .add_pool(AssetId::new("LP-WRF-USDC"), 100, ts(0))
+            .unwrap();
         assert_eq!(idx, 0);
     }
 

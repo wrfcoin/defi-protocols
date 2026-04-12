@@ -40,7 +40,10 @@ pub enum PredictionError {
     LmsrError { reason: String },
 
     #[error("position not found for user on market {market_id} outcome {outcome_index}")]
-    PositionNotFound { market_id: u64, outcome_index: usize },
+    PositionNotFound {
+        market_id: u64,
+        outcome_index: usize,
+    },
 
     #[error("non-finite floating-point value in LMSR input")]
     NonFinite,

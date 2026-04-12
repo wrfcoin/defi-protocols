@@ -134,11 +134,11 @@ impl UnbondingQueue {
                 break;
             }
             let entry = self.entries.pop_front().unwrap();
-            total = total
-                .checked_add(entry.amount)
-                .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
+            total = total.checked_add(entry.amount).ok_or_else(|| {
+                LiquidStakingError::Defi(DefiError::Overflow {
                     operation: "unbonding claim sum".into(),
-                }))?;
+                })
+            })?;
             any_ready = true;
         }
 
@@ -205,9 +205,11 @@ impl StWRFToken {
             .0
             .checked_mul(self.total_shares.0)
             .and_then(|v| v.checked_div(self.total_underlying.0))
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
-                operation: "wrf_to_shares".into(),
-            }))?;
+            .ok_or_else(|| {
+                LiquidStakingError::Defi(DefiError::Overflow {
+                    operation: "wrf_to_shares".into(),
+                })
+            })?;
         Ok(Amount::new(shares))
     }
 
@@ -224,9 +226,11 @@ impl StWRFToken {
             .0
             .checked_mul(self.total_underlying.0)
             .and_then(|v| v.checked_div(self.total_shares.0))
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
-                operation: "shares_to_wrf".into(),
-            }))?;
+            .ok_or_else(|| {
+                LiquidStakingError::Defi(DefiError::Overflow {
+                    operation: "shares_to_wrf".into(),
+                })
+            })?;
         Ok(Amount::new(wrf))
     }
 
@@ -236,35 +240,34 @@ impl StWRFToken {
         self.total_underlying = self
             .total_underlying
             .checked_add(wrf_amount)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
-                operation: "mint total_underlying".into(),
-            }))?;
-        self.total_shares = self
-            .total_shares
-            .checked_add(shares)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
+            .ok_or_else(|| {
+                LiquidStakingError::Defi(DefiError::Overflow {
+                    operation: "mint total_underlying".into(),
+                })
+            })?;
+        self.total_shares = self.total_shares.checked_add(shares).ok_or_else(|| {
+            LiquidStakingError::Defi(DefiError::Overflow {
                 operation: "mint total_shares".into(),
-            }))?;
+            })
+        })?;
         Ok(shares)
     }
 
     /// Burn shares when a user requests unstaking. Returns WRF owed.
     pub fn burn(&mut self, shares: Amount) -> LiquidStakingResult<Amount> {
         let wrf = self.shares_to_wrf(shares)?;
-        self.total_shares = self
-            .total_shares
-            .checked_sub(shares)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::InsufficientBalance {
+        self.total_shares = self.total_shares.checked_sub(shares).ok_or({
+            LiquidStakingError::Defi(DefiError::InsufficientBalance {
                 required: shares,
                 available: self.total_shares,
-            }))?;
-        self.total_underlying = self
-            .total_underlying
-            .checked_sub(wrf)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::InsufficientBalance {
+            })
+        })?;
+        self.total_underlying = self.total_underlying.checked_sub(wrf).ok_or({
+            LiquidStakingError::Defi(DefiError::InsufficientBalance {
                 required: wrf,
                 available: self.total_underlying,
-            }))?;
+            })
+        })?;
         Ok(wrf)
     }
 
@@ -274,22 +277,23 @@ impl StWRFToken {
         self.total_underlying = self
             .total_underlying
             .checked_add(reward_amount)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
-                operation: "distribute_rewards".into(),
-            }))?;
+            .ok_or_else(|| {
+                LiquidStakingError::Defi(DefiError::Overflow {
+                    operation: "distribute_rewards".into(),
+                })
+            })?;
         Ok(())
     }
 
     /// Reduce `total_underlying` by `slash_amount` (validator slashing event).
     /// All stWRF holders are diluted proportionally.
     pub fn apply_slash(&mut self, slash_amount: Amount) -> LiquidStakingResult<()> {
-        self.total_underlying = self
-            .total_underlying
-            .checked_sub(slash_amount)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::InsufficientBalance {
+        self.total_underlying = self.total_underlying.checked_sub(slash_amount).ok_or({
+            LiquidStakingError::Defi(DefiError::InsufficientBalance {
                 required: slash_amount,
                 available: self.total_underlying,
-            }))?;
+            })
+        })?;
         Ok(())
     }
 
@@ -381,11 +385,11 @@ impl LiquidStakingPool {
         }
         let shares_minted = self.token.mint(wrf_amount)?;
         let user_shares = self.shares.entry(user).or_insert(Amount::ZERO);
-        *user_shares = user_shares
-            .checked_add(shares_minted)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
+        *user_shares = user_shares.checked_add(shares_minted).ok_or_else(|| {
+            LiquidStakingError::Defi(DefiError::Overflow {
                 operation: "stake user shares".into(),
-            }))?;
+            })
+        })?;
         Ok(shares_minted)
     }
 
@@ -406,13 +410,12 @@ impl LiquidStakingPool {
         }
 
         // Deduct from user's share balance.
-        let user_shares = self
-            .shares
-            .get_mut(&user)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::InsufficientBalance {
+        let user_shares = self.shares.get_mut(&user).ok_or({
+            LiquidStakingError::Defi(DefiError::InsufficientBalance {
                 required: stwrf_shares,
                 available: Amount::ZERO,
-            }))?;
+            })
+        })?;
 
         if *user_shares < stwrf_shares {
             return Err(LiquidStakingError::Defi(DefiError::InsufficientBalance {
@@ -421,11 +424,11 @@ impl LiquidStakingPool {
             }));
         }
 
-        *user_shares = user_shares
-            .checked_sub(stwrf_shares)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
+        *user_shares = user_shares.checked_sub(stwrf_shares).ok_or_else(|| {
+            LiquidStakingError::Defi(DefiError::Overflow {
                 operation: "unstake user shares".into(),
-            }))?;
+            })
+        })?;
 
         if user_shares.is_zero() {
             self.shares.remove(&user);
@@ -485,7 +488,11 @@ impl LiquidStakingPool {
         slash_amount: Amount,
     ) -> LiquidStakingResult<()> {
         // Verify the validator exists in our allocation table.
-        if !self.validators.iter().any(|v| v.validator_id == validator_id) {
+        if !self
+            .validators
+            .iter()
+            .any(|v| v.validator_id == validator_id)
+        {
             return Err(LiquidStakingError::ValidatorNotFound { validator_id });
         }
         self.token.apply_slash(slash_amount)
@@ -529,9 +536,11 @@ impl LiquidStakingPool {
         let wrf_value = self.token.shares_to_wrf(stwrf_shares)?;
         wrf_value
             .mul_fraction(STWRF_LTV_BPS as u128, 10_000)
-            .ok_or_else(|| LiquidStakingError::Defi(DefiError::Overflow {
-                operation: "collateral_value_bps".into(),
-            }))
+            .ok_or_else(|| {
+                LiquidStakingError::Defi(DefiError::Overflow {
+                    operation: "collateral_value_bps".into(),
+                })
+            })
     }
 
     /// Total WRF staked in the pool (includes accrued rewards, minus slashes).
@@ -583,8 +592,8 @@ mod tests {
     fn single_validator_pool() -> LiquidStakingPool {
         LiquidStakingPool::new(
             vec![ValidatorAllocation::new(1, 10_000)],
-            500,  // 5% reward rate bps
-            100,  // 100 block unbonding delay
+            500, // 5% reward rate bps
+            100, // 100 block unbonding delay
         )
         .unwrap()
     }
@@ -629,8 +638,11 @@ mod tests {
         // num / den = 110 * PRECISION / 100 = 1.1 * PRECISION.
         let (num, den) = pool.token.exchange_rate_scaled();
         let rate_scaled = num / den; // = 1.1 * PRECISION
-        // 1.1 * 1e18 should be between 1e18 and 2e18.
-        assert!(rate_scaled > PRECISION, "rate should be > 1.0 after rewards");
+                                     // 1.1 * 1e18 should be between 1e18 and 2e18.
+        assert!(
+            rate_scaled > PRECISION,
+            "rate should be > 1.0 after rewards"
+        );
         assert!(rate_scaled < 2 * PRECISION, "rate should be < 2.0");
         // Exact: 110 * PRECISION / 100 = 11 * PRECISION / 10
         assert_eq!(rate_scaled, 11 * PRECISION / 10);
@@ -689,7 +701,10 @@ mod tests {
         let mut pool = single_validator_pool();
         pool.stake(addr(1), Amount::new(100)).unwrap();
         let result = pool.slash_validator(99, Amount::new(10));
-        assert!(matches!(result, Err(LiquidStakingError::ValidatorNotFound { .. })));
+        assert!(matches!(
+            result,
+            Err(LiquidStakingError::ValidatorNotFound { .. })
+        ));
     }
 
     // -----------------------------------------------------------------------
@@ -707,7 +722,10 @@ mod tests {
 
         // Cannot claim before height 600.
         let result = pool.claim_unbonded(addr(1), 599);
-        assert!(matches!(result, Err(LiquidStakingError::NothingToClaim { .. })));
+        assert!(matches!(
+            result,
+            Err(LiquidStakingError::NothingToClaim { .. })
+        ));
 
         // Can claim at height 600.
         let claimed = pool.claim_unbonded(addr(1), 600).unwrap();
@@ -733,7 +751,9 @@ mod tests {
         let result = pool.unstake(addr(1), Amount::new(200), 0);
         assert!(matches!(
             result,
-            Err(LiquidStakingError::Defi(DefiError::InsufficientBalance { .. }))
+            Err(LiquidStakingError::Defi(
+                DefiError::InsufficientBalance { .. }
+            ))
         ));
     }
 
@@ -839,9 +859,7 @@ mod tests {
     #[test]
     fn test_rebalance_invalid_weights_fails() {
         let mut pool = multi_validator_pool();
-        let result = pool.rebalance_validators(vec![
-            ValidatorAllocation::new(1, 3_000),
-        ]);
+        let result = pool.rebalance_validators(vec![ValidatorAllocation::new(1, 3_000)]);
         assert!(matches!(
             result,
             Err(LiquidStakingError::InvalidValidatorWeights { .. })

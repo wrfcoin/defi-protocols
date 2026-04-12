@@ -134,11 +134,11 @@ impl fmt::Display for Address {
         // Display first 4 and last 4 bytes in hex for readability
         write!(f, "0x")?;
         for b in &self.0[..4] {
-            write!(f, "{:02x}", b)?;
+            write!(f, "{b:02x}")?;
         }
         write!(f, "...")?;
         for b in &self.0[28..] {
-            write!(f, "{:02x}", b)?;
+            write!(f, "{b:02x}")?;
         }
         Ok(())
     }
@@ -392,7 +392,10 @@ mod tests {
 
         let encoded = event.abi_encode();
         assert_eq!(encoded.len(), 160);
-        assert_eq!(&encoded[..32], &LiquidationEvent::borrower_position_id(&borrower));
+        assert_eq!(
+            &encoded[..32],
+            &LiquidationEvent::borrower_position_id(&borrower)
+        );
         assert_eq!(encoded[63], 210);
         assert_eq!(encoded[95], 200);
         assert_eq!(encoded[127], 0xbb);
@@ -519,7 +522,7 @@ mod tests {
         bytes[0] = 0xAB;
         bytes[31] = 0xCD;
         let addr = Address::from_bytes(bytes);
-        let display = format!("{}", addr);
+        let display = format!("{addr}");
         assert!(display.starts_with("0x"));
         assert!(display.contains("..."));
     }
@@ -528,13 +531,13 @@ mod tests {
     fn test_asset_id() {
         let id = AssetId::new("WRF");
         assert_eq!(id.as_str(), "WRF");
-        assert_eq!(format!("{}", id), "WRF");
+        assert_eq!(format!("{id}"), "WRF");
     }
 
     #[test]
     fn test_pool_id_display() {
         let pid = PoolId::new(42);
-        assert_eq!(format!("{}", pid), "pool#42");
+        assert_eq!(format!("{pid}"), "pool#42");
     }
 
     #[test]

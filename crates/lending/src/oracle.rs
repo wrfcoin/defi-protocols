@@ -26,7 +26,8 @@ impl SimplePriceOracle {
 
     /// Set or update the price for an asset with a timestamp.
     pub fn set_price_at(&mut self, asset: AssetId, price: Price, updated_at: Timestamp) {
-        self.prices.insert(asset, PriceSnapshot { price, updated_at });
+        self.prices
+            .insert(asset, PriceSnapshot { price, updated_at });
     }
 
     /// Backwards-compatible setter for tests that do not care about freshness.
@@ -39,7 +40,7 @@ impl SimplePriceOracle {
             .get(asset)
             .copied()
             .ok_or_else(|| DefiError::OracleError {
-                message: format!("no price available for asset {}", asset),
+                message: format!("no price available for asset {asset}"),
             })
     }
 
@@ -55,8 +56,7 @@ impl SimplePriceOracle {
             if age > max_age_secs {
                 return Err(DefiError::OracleError {
                     message: format!(
-                        "stale oracle price for asset {}: age {}s exceeds {}s",
-                        asset, age, max_age_secs
+                        "stale oracle price for asset {asset}: age {age}s exceeds {max_age_secs}s"
                     ),
                 });
             }
@@ -94,7 +94,9 @@ mod tests {
         let mut oracle = SimplePriceOracle::new();
         let wrf = AssetId::new("WRF");
         oracle.set_price_at(wrf.clone(), Price::new(2, 1), Timestamp::new(42));
-        let snapshot = oracle.get_snapshot(&wrf).expect("snapshot should exist after set_price_at");
+        let snapshot = oracle
+            .get_snapshot(&wrf)
+            .expect("snapshot should exist after set_price_at");
         assert_eq!(snapshot.price, Price::new(2, 1));
         assert_eq!(snapshot.updated_at, Timestamp::new(42));
     }
@@ -121,7 +123,9 @@ mod tests {
         let mut oracle = SimplePriceOracle::new();
         oracle.set_price_at(AssetId::new("A"), Price::new(1, 1), Timestamp::new(1));
         oracle.set_price_at(AssetId::new("B"), Price::new(2, 1), Timestamp::new(1));
-        let prices = oracle.get_prices(&[AssetId::new("A"), AssetId::new("B")]).expect("batch price lookup should succeed for known assets");
+        let prices = oracle
+            .get_prices(&[AssetId::new("A"), AssetId::new("B")])
+            .expect("batch price lookup should succeed for known assets");
         assert_eq!(prices.len(), 2);
     }
 

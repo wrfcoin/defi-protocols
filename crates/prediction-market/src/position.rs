@@ -27,10 +27,7 @@ impl UserPosition {
 
     pub fn add_shares(&mut self, delta: f64, cost: Amount) {
         self.shares += delta;
-        self.cost_basis = self
-            .cost_basis
-            .checked_add(cost)
-            .unwrap_or(self.cost_basis);
+        self.cost_basis = self.cost_basis.checked_add(cost).unwrap_or(self.cost_basis);
     }
 
     pub fn remove_shares(&mut self, delta: f64) {

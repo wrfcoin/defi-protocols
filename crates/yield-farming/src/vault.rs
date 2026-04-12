@@ -268,7 +268,10 @@ impl AutoCompoundingVault {
     }
 
     pub fn share_balance(&self, user: &Address) -> Amount {
-        self.share_balances.get(user).copied().unwrap_or(Amount::ZERO)
+        self.share_balances
+            .get(user)
+            .copied()
+            .unwrap_or(Amount::ZERO)
     }
 
     pub fn total_assets(&self) -> DefiResult<Amount> {
@@ -347,23 +350,20 @@ impl AutoCompoundingVault {
 
         // Zero-amount deposit reuses the farm's reward accounting without
         // changing the vault's principal position.
-        let harvested = farm.deposit(self.vault_address, self.pool_index, Amount::ZERO, timestamp)?;
-        self.reward_balance = self
-            .reward_balance
-            .checked_add(harvested)
-            .ok_or(DefiError::Overflow {
-                operation: "vault sync_rewards".into(),
-            })?;
+        let harvested =
+            farm.deposit(self.vault_address, self.pool_index, Amount::ZERO, timestamp)?;
+        self.reward_balance =
+            self.reward_balance
+                .checked_add(harvested)
+                .ok_or(DefiError::Overflow {
+                    operation: "vault sync_rewards".into(),
+                })?;
         Ok(harvested)
     }
 
     /// Harvest pending farm rewards into the vault's liquid reward balance
     /// without changing principal or share balances.
-    pub fn harvest(
-        &mut self,
-        farm: &mut FarmManager,
-        timestamp: Timestamp,
-    ) -> DefiResult<Amount> {
+    pub fn harvest(&mut self, farm: &mut FarmManager, timestamp: Timestamp) -> DefiResult<Amount> {
         self.sync_rewards(farm, timestamp)
     }
 
@@ -378,18 +378,18 @@ impl AutoCompoundingVault {
         let shares = self.preview_deposit(assets)?;
 
         let pending = farm.deposit(self.vault_address, self.pool_index, assets, timestamp)?;
-        self.reward_balance = self
-            .reward_balance
-            .checked_add(pending)
-            .ok_or(DefiError::Overflow {
-                operation: "vault deposit reward sync".into(),
-            })?;
-        self.staked_balance = self
-            .staked_balance
-            .checked_add(assets)
-            .ok_or(DefiError::Overflow {
-                operation: "vault deposit staked_balance".into(),
-            })?;
+        self.reward_balance =
+            self.reward_balance
+                .checked_add(pending)
+                .ok_or(DefiError::Overflow {
+                    operation: "vault deposit reward sync".into(),
+                })?;
+        self.staked_balance =
+            self.staked_balance
+                .checked_add(assets)
+                .ok_or(DefiError::Overflow {
+                    operation: "vault deposit staked_balance".into(),
+                })?;
         self.total_shares = self
             .total_shares
             .checked_add(shares)
@@ -414,7 +414,11 @@ impl AutoCompoundingVault {
     ) -> DefiResult<Amount> {
         self.sync_rewards(farm, timestamp)?;
 
-        let user_balance = self.share_balances.get(&user).copied().unwrap_or(Amount::ZERO);
+        let user_balance = self
+            .share_balances
+            .get(&user)
+            .copied()
+            .unwrap_or(Amount::ZERO);
         if shares > user_balance {
             return Err(DefiError::InsufficientBalance {
                 required: shares,
@@ -438,32 +442,28 @@ impl AutoCompoundingVault {
         }
 
         if !farm_portion.is_zero() {
-            let pending = farm.withdraw(
-                self.vault_address,
-                self.pool_index,
-                farm_portion,
-                timestamp,
-            )?;
-            self.reward_balance = self
-                .reward_balance
-                .checked_add(pending)
-                .ok_or(DefiError::Overflow {
-                    operation: "vault withdraw reward sync".into(),
-                })?;
-            self.staked_balance = self
-                .staked_balance
-                .checked_sub(farm_portion)
-                .ok_or(DefiError::Overflow {
-                    operation: "vault withdraw staked_balance".into(),
-                })?;
+            let pending =
+                farm.withdraw(self.vault_address, self.pool_index, farm_portion, timestamp)?;
+            self.reward_balance =
+                self.reward_balance
+                    .checked_add(pending)
+                    .ok_or(DefiError::Overflow {
+                        operation: "vault withdraw reward sync".into(),
+                    })?;
+            self.staked_balance =
+                self.staked_balance
+                    .checked_sub(farm_portion)
+                    .ok_or(DefiError::Overflow {
+                        operation: "vault withdraw staked_balance".into(),
+                    })?;
         }
 
-        self.reward_balance = self
-            .reward_balance
-            .checked_sub(reward_portion)
-            .ok_or(DefiError::Overflow {
-                operation: "vault withdraw reward balance".into(),
-            })?;
+        self.reward_balance =
+            self.reward_balance
+                .checked_sub(reward_portion)
+                .ok_or(DefiError::Overflow {
+                    operation: "vault withdraw reward balance".into(),
+                })?;
         self.total_shares = self
             .total_shares
             .checked_sub(shares)
@@ -492,9 +492,11 @@ impl AutoCompoundingVault {
     ) -> DefiResult<CompoundOutcome> {
         self.guardrails.validate_snapshot(&self.risk_snapshot)?;
         let harvested = self.sync_rewards(farm, timestamp)?;
-        let reinvested = self
-            .strategy
-            .calculate_reinvestment(self.reward_balance, self.staked_balance, timestamp)?;
+        let reinvested = self.strategy.calculate_reinvestment(
+            self.reward_balance,
+            self.staked_balance,
+            timestamp,
+        )?;
 
         if reinvested.is_zero() {
             return Ok(CompoundOutcome {
@@ -520,18 +522,18 @@ impl AutoCompoundingVault {
             })?;
 
         let pending = farm.deposit(self.vault_address, self.pool_index, net_rewards, timestamp)?;
-        self.reward_balance = self
-            .reward_balance
-            .checked_add(pending)
-            .ok_or(DefiError::Overflow {
-                operation: "vault compound post-deposit reward sync".into(),
-            })?;
-        self.staked_balance = self
-            .staked_balance
-            .checked_add(net_rewards)
-            .ok_or(DefiError::Overflow {
-                operation: "vault compound staked_balance".into(),
-            })?;
+        self.reward_balance =
+            self.reward_balance
+                .checked_add(pending)
+                .ok_or(DefiError::Overflow {
+                    operation: "vault compound post-deposit reward sync".into(),
+                })?;
+        self.staked_balance =
+            self.staked_balance
+                .checked_add(net_rewards)
+                .ok_or(DefiError::Overflow {
+                    operation: "vault compound staked_balance".into(),
+                })?;
         self.strategy.last_compound_time = timestamp;
 
         Ok(CompoundOutcome {
@@ -572,7 +574,9 @@ mod tests {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 1, 0));
 
-        let first_shares = vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        let first_shares = vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
         assert_eq!(first_shares, Amount::new(1_000));
         assert_eq!(vault.total_shares, Amount::new(1_000));
         assert_eq!(vault.staked_balance, Amount::new(1_000));
@@ -601,7 +605,9 @@ mod tests {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 100));
 
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
         let outcome = vault.compound(&mut farm, ts(10)).unwrap();
 
         assert_eq!(outcome.harvested_rewards, Amount::new(1_000));
@@ -622,7 +628,9 @@ mod tests {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(2_000), 10, 0));
 
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
         let outcome = vault.compound(&mut farm, ts(10)).unwrap();
 
         assert_eq!(outcome.harvested_rewards, Amount::new(1_000));
@@ -635,7 +643,9 @@ mod tests {
     fn guardrail_rejects_excessive_combined_surface() {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
 
         let result = vault.set_risk_snapshot(VaultRiskSnapshot {
             governance_boost_bps: 12_000,
@@ -649,7 +659,9 @@ mod tests {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
 
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
         let harvested = vault.harvest(&mut farm, ts(10)).unwrap();
 
         assert_eq!(harvested, Amount::new(1_000));
@@ -667,7 +679,9 @@ mod tests {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
 
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
         vault
             .set_risk_snapshot(VaultRiskSnapshot {
                 governance_boost_bps: 11_500,
@@ -691,8 +705,12 @@ mod tests {
     fn neutral_snapshot_allows_compounding() {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
-        vault.set_risk_snapshot(VaultRiskSnapshot::neutral()).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
+        vault
+            .set_risk_snapshot(VaultRiskSnapshot::neutral())
+            .unwrap();
 
         let outcome = vault.compound(&mut farm, ts(10)).unwrap();
         assert_eq!(outcome.reinvested_rewards, Amount::new(1_000));
@@ -714,15 +732,15 @@ mod tests {
 
     #[test]
     fn liquid_staking_input_derives_exchange_rate_from_pool_totals() {
-        let liquid = LiquidStakingInput::from_pool_totals(Amount::new(1_050), Amount::new(1_000))
-            .unwrap();
+        let liquid =
+            LiquidStakingInput::from_pool_totals(Amount::new(1_050), Amount::new(1_000)).unwrap();
         assert_eq!(liquid.exchange_rate_bps, 10_500);
     }
 
     #[test]
     fn liquid_staking_input_rejects_zero_supply() {
-        let err = LiquidStakingInput::from_pool_totals(Amount::new(1_000), Amount::ZERO)
-            .unwrap_err();
+        let err =
+            LiquidStakingInput::from_pool_totals(Amount::new(1_000), Amount::ZERO).unwrap_err();
         assert!(matches!(err, DefiError::InvalidAmount { .. }));
     }
 
@@ -730,7 +748,9 @@ mod tests {
     fn integrations_adapter_rejects_excessive_combined_surface() {
         let mut farm = farm_manager();
         let mut vault = vault(CompoundingStrategy::new(Amount::new(1), 10, 0));
-        vault.deposit(&mut farm, addr(1), Amount::new(1_000), ts(0)).unwrap();
+        vault
+            .deposit(&mut farm, addr(1), Amount::new(1_000), ts(0))
+            .unwrap();
 
         let governance = GovernanceBoostInput::new(11_800).unwrap();
         let liquid = LiquidStakingInput::new(11_100).unwrap();

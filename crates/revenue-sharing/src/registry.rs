@@ -1,7 +1,7 @@
-use wrfcoin_defi_common::types::Address;
+use crate::error::{RevenueError, RevenueResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use crate::error::{RevenueError, RevenueResult};
+use wrfcoin_defi_common::types::Address;
 
 /// Minimum quality score (bps) for a contributor to be eligible for distribution.
 pub const MIN_QUALITY_THRESHOLD_BPS: u16 = 5_000; // 50%
@@ -77,7 +77,10 @@ impl DataContributorRegistry {
     }
 
     pub fn eligible_contributors(&self) -> Vec<&ContributorProfile> {
-        self.contributors.values().filter(|p| p.is_eligible()).collect()
+        self.contributors
+            .values()
+            .filter(|p| p.is_eligible())
+            .collect()
     }
 }
 
@@ -91,7 +94,14 @@ mod tests {
         Address::from_bytes(bytes)
     }
 
-    fn make_profile(address: Address, quality: u16, uptime: u16, geo: u16, volume: u16, active: bool) -> ContributorProfile {
+    fn make_profile(
+        address: Address,
+        quality: u16,
+        uptime: u16,
+        geo: u16,
+        volume: u16,
+        active: bool,
+    ) -> ContributorProfile {
         ContributorProfile {
             address,
             quality_score_bps: quality,
@@ -139,7 +149,14 @@ mod tests {
 
     #[test]
     fn test_is_eligible_below_quality_threshold() {
-        let profile = make_profile(make_address(1), MIN_QUALITY_THRESHOLD_BPS - 1, 10_000, 10_000, 10_000, true);
+        let profile = make_profile(
+            make_address(1),
+            MIN_QUALITY_THRESHOLD_BPS - 1,
+            10_000,
+            10_000,
+            10_000,
+            true,
+        );
         assert!(!profile.is_eligible());
     }
 
@@ -158,11 +175,32 @@ mod tests {
     fn test_eligible_contributors_filters_correctly() {
         let mut registry = DataContributorRegistry::new();
         // Eligible
-        registry.register(make_profile(make_address(1), 6_000, 8_000, 5_000, 3_000, true));
+        registry.register(make_profile(
+            make_address(1),
+            6_000,
+            8_000,
+            5_000,
+            3_000,
+            true,
+        ));
         // Ineligible — quality too low
-        registry.register(make_profile(make_address(2), 4_000, 10_000, 10_000, 10_000, true));
+        registry.register(make_profile(
+            make_address(2),
+            4_000,
+            10_000,
+            10_000,
+            10_000,
+            true,
+        ));
         // Ineligible — inactive
-        registry.register(make_profile(make_address(3), 9_000, 9_000, 9_000, 9_000, false));
+        registry.register(make_profile(
+            make_address(3),
+            9_000,
+            9_000,
+            9_000,
+            9_000,
+            false,
+        ));
 
         let eligible = registry.eligible_contributors();
         assert_eq!(eligible.len(), 1);

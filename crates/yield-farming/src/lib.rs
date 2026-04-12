@@ -6,14 +6,14 @@ pub mod strategy;
 pub mod utility_hooks;
 pub mod vault;
 
+pub use escrow::{
+    EscrowSettlement, EscrowTelemetry, EscrowedReward, ForfeitReason, QualityOutcomeSignalSource,
+    QualityVerificationOutcome, RewardEscrowBook, RewardEscrowPolicy,
+};
 pub use farm::{FarmManager, FarmPool};
 pub use governance::{
     GovernanceBoostConfig, GovernanceEmissionAllocation, GovernanceEmissionRouter,
     GovernancePoolInput,
-};
-pub use escrow::{
-    EscrowSettlement, EscrowTelemetry, EscrowedReward, ForfeitReason, QualityOutcomeSignalSource,
-    QualityVerificationOutcome, RewardEscrowBook, RewardEscrowPolicy,
 };
 pub use rewards::{RewardCalculator, VestingSchedule};
 pub use strategy::{CompoundingStrategy, YieldStrategy};

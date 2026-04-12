@@ -75,12 +75,7 @@ pub fn buy_cost(q: &[f64], b: f64, outcome_index: usize, delta: f64) -> Predicti
 /// Returns the net WRF proceeds (in f64 base units) the trader receives:
 ///   proceeds = C(q) − C(q')
 /// where q'[i] = q[i] − delta and q'[j] = q[j] for j ≠ i.
-pub fn sell_proceeds(
-    q: &[f64],
-    b: f64,
-    outcome_index: usize,
-    delta: f64,
-) -> PredictionResult<f64> {
+pub fn sell_proceeds(q: &[f64], b: f64, outcome_index: usize, delta: f64) -> PredictionResult<f64> {
     if !delta.is_finite() {
         return Err(PredictionError::NonFinite);
     }
@@ -230,7 +225,11 @@ mod tests {
         let mut q2 = q.clone();
         q2[0] += 5.0;
         let sold = sell_proceeds(&q2, b, 0, 5.0).unwrap();
-        assert!((bought - sold).abs() < 1e-9, "buy then sell roundtrip: diff={}", bought - sold);
+        assert!(
+            (bought - sold).abs() < 1e-9,
+            "buy then sell roundtrip: diff={}",
+            bought - sold
+        );
     }
 
     #[test]
@@ -243,26 +242,41 @@ mod tests {
 
     #[test]
     fn test_nan_b_rejected() {
-        assert!(matches!(cost(&[0.0, 0.0], f64::NAN), Err(PredictionError::NonFinite)));
+        assert!(matches!(
+            cost(&[0.0, 0.0], f64::NAN),
+            Err(PredictionError::NonFinite)
+        ));
     }
 
     #[test]
     fn test_inf_b_rejected() {
-        assert!(matches!(cost(&[0.0, 0.0], f64::INFINITY), Err(PredictionError::NonFinite)));
+        assert!(matches!(
+            cost(&[0.0, 0.0], f64::INFINITY),
+            Err(PredictionError::NonFinite)
+        ));
     }
 
     #[test]
     fn test_nan_q_rejected() {
-        assert!(matches!(cost(&[f64::NAN, 0.0], 100.0), Err(PredictionError::NonFinite)));
+        assert!(matches!(
+            cost(&[f64::NAN, 0.0], 100.0),
+            Err(PredictionError::NonFinite)
+        ));
     }
 
     #[test]
     fn test_inf_delta_buy_rejected() {
-        assert!(matches!(buy_cost(&[0.0, 0.0], 100.0, 0, f64::INFINITY), Err(PredictionError::NonFinite)));
+        assert!(matches!(
+            buy_cost(&[0.0, 0.0], 100.0, 0, f64::INFINITY),
+            Err(PredictionError::NonFinite)
+        ));
     }
 
     #[test]
     fn test_nan_delta_sell_rejected() {
-        assert!(matches!(sell_proceeds(&[10.0, 0.0], 100.0, 0, f64::NAN), Err(PredictionError::NonFinite)));
+        assert!(matches!(
+            sell_proceeds(&[10.0, 0.0], 100.0, 0, f64::NAN),
+            Err(PredictionError::NonFinite)
+        ));
     }
 }

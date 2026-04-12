@@ -1,11 +1,11 @@
 //! Settlement engine: automatic settlement at observation window close using
 //! oracle-attested readings.
 
+use crate::error::{DerivativesError, DerivativesResult};
+use crate::futures::{FutureId, FuturesBook};
+use crate::oracle::WeatherOracle;
 use serde::{Deserialize, Serialize};
 use wrfcoin_defi_common::types::Address;
-use crate::error::{DerivativesError, DerivativesResult};
-use crate::futures::{FuturesBook, FutureId};
-use crate::oracle::WeatherOracle;
 
 /// An oracle-attested weather reading used for settlement.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -143,7 +143,8 @@ mod tests {
             .unwrap();
 
         // Open a long position at 50 CDD entry price.
-        book.open_position(future_id, addr(1), true, 1, 50_000_000).unwrap();
+        book.open_position(future_id, addr(1), true, 1, 50_000_000)
+            .unwrap();
 
         // Oracle reports 72°F at settlement block → CDD = max(0, 72 - 65) = 7
         let mut oracle = InMemoryOracle::new();
@@ -158,7 +159,7 @@ mod tests {
         let (trader, pnl) = outcome.payouts[0];
         assert_eq!(trader, addr(1));
         // P&L = (7 - 50) × 1 contract × 1_000_000 tick = -43_000_000 (loss)
-        assert_eq!(pnl, (7_000_000 - 50_000_000) * 1);
+        assert_eq!(pnl, 7_000_000 - 50_000_000);
     }
 
     #[test]
@@ -169,7 +170,8 @@ mod tests {
             .unwrap();
 
         // Long 10 contracts at entry 50 CDD
-        book.open_position(fid, addr(1), true, 10, 50_000_000).unwrap();
+        book.open_position(fid, addr(1), true, 10, 50_000_000)
+            .unwrap();
 
         let mut oracle = InMemoryOracle::new();
         // observed = 90°F → CDD = 90 - 65 = 25
@@ -194,7 +196,8 @@ mod tests {
             .unwrap();
 
         // Short 5 contracts at entry 80 CDD
-        book.open_position(fid, addr(2), false, 5, 80_000_000).unwrap();
+        book.open_position(fid, addr(2), false, 5, 80_000_000)
+            .unwrap();
 
         let mut oracle = InMemoryOracle::new();
         // observed = 72°F → CDD = 7
@@ -242,11 +245,7 @@ mod tests {
         let outcome = SettlementOutcome {
             future_id: FutureId(0),
             final_index_scaled: 10_000_000,
-            payouts: vec![
-                (addr(1), 500_000),
-                (addr(2), -200_000),
-                (addr(3), 300_000),
-            ],
+            payouts: vec![(addr(1), 500_000), (addr(2), -200_000), (addr(3), 300_000)],
         };
         assert_eq!(outcome.total_payout(), 800_000);
     }

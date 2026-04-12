@@ -74,8 +74,7 @@ where
         }
         return Err(DefiError::InvalidAmount {
             reason: format!(
-                "flash loan underpayment: returned {}, required {}",
-                returned, required_return
+                "flash loan underpayment: returned {returned}, required {required_return}"
             ),
         });
     }
@@ -102,7 +101,8 @@ mod tests {
     fn setup_pool() -> LendingPool {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(10_000), ts(1)).expect("initial deposit should succeed");
+        pool.deposit(&asset("WRF"), Amount::new(10_000), ts(1))
+            .expect("initial deposit should succeed");
         pool
     }
 
@@ -136,9 +136,10 @@ mod tests {
     #[test]
     fn test_flash_loan_with_meaningful_fee() {
         let mut pool = setup_pool();
-        let loan_amount = Amount::new(100_000_0); // 1M units
-        // First add more liquidity
-        pool.deposit(&asset("WRF"), Amount::new(990_000_0), ts(2)).expect("additional deposit should succeed");
+        let loan_amount = Amount::new(1_000_000); // 1M units
+                                                  // First add more liquidity
+        pool.deposit(&asset("WRF"), Amount::new(9_900_000), ts(2))
+            .expect("additional deposit should succeed");
         // Pool now has 10M
 
         let fee = execute_flash_loan(
@@ -149,7 +150,7 @@ mod tests {
             ts(10),
             |_borrowed| {
                 // fee = 1_000_000 * 9 / 10_000 = 900
-                Ok(Amount::new(100_000_0 + 900))
+                Ok(Amount::new(1_000_000 + 900))
             },
         )
         .expect("flash loan with meaningful fee should succeed");

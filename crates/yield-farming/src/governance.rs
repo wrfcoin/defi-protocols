@@ -31,9 +31,7 @@ impl Default for GovernanceBoostConfig {
 
 impl GovernanceBoostConfig {
     pub fn validate(&self) -> DefiResult<()> {
-        if self.neutral_governance_bps == 0
-            || self.neutral_governance_bps >= BPS_SCALE as u16
-        {
+        if self.neutral_governance_bps == 0 || self.neutral_governance_bps >= BPS_SCALE as u16 {
             return Err(DefiError::InvalidAmount {
                 reason: "neutral_governance_bps must be between 1 and 9_999".into(),
             });
@@ -93,13 +91,13 @@ impl GovernanceEmissionRouter {
         let max_tilt = self.config.max_tilt_bps as i32;
         let delta = score - neutral;
         let adjustment = (delta * max_tilt) / neutral.max(1);
-        let multiplier = (BPS_SCALE as i32 + adjustment)
-            .clamp(0, u16::MAX as i32);
+        let multiplier = (BPS_SCALE as i32 + adjustment).clamp(0, u16::MAX as i32);
         multiplier as u16
     }
 
     fn raw_weight(&self, pool: &GovernancePoolInput) -> u128 {
-        u128::from(pool.alloc_point) * u128::from(self.governance_multiplier_bps(pool.governance_score_bps))
+        u128::from(pool.alloc_point)
+            * u128::from(self.governance_multiplier_bps(pool.governance_score_bps))
     }
 
     /// Route a fixed emission budget across pools using normalized governance
@@ -135,17 +133,20 @@ impl GovernanceEmissionRouter {
             .iter()
             .map(|pool| {
                 let raw_weight = self.raw_weight(pool);
-                let numerator = emission_budget
-                    .0
-                    .checked_mul(raw_weight)
-                    .ok_or(DefiError::Overflow {
-                        operation: "governance routing numerator".into(),
-                    })?;
+                let numerator =
+                    emission_budget
+                        .0
+                        .checked_mul(raw_weight)
+                        .ok_or(DefiError::Overflow {
+                            operation: "governance routing numerator".into(),
+                        })?;
                 let routed = numerator / total_raw_weight;
                 let remainder = numerator % total_raw_weight;
-                routed_total = routed_total.checked_add(routed).ok_or(DefiError::Overflow {
-                    operation: "governance routing sum".into(),
-                })?;
+                routed_total = routed_total
+                    .checked_add(routed)
+                    .ok_or(DefiError::Overflow {
+                        operation: "governance routing sum".into(),
+                    })?;
 
                 Ok((
                     GovernanceEmissionAllocation {
@@ -160,9 +161,12 @@ impl GovernanceEmissionRouter {
             })
             .collect::<DefiResult<Vec<_>>>()?;
 
-        let leftover = emission_budget.0.checked_sub(routed_total).ok_or(DefiError::Overflow {
-            operation: "governance routing leftover".into(),
-        })?;
+        let leftover = emission_budget
+            .0
+            .checked_sub(routed_total)
+            .ok_or(DefiError::Overflow {
+                operation: "governance routing leftover".into(),
+            })?;
 
         let mut by_remainder: Vec<(usize, u128)> = allocations
             .iter()
@@ -185,7 +189,10 @@ impl GovernanceEmissionRouter {
                 })?;
         }
 
-        Ok(allocations.into_iter().map(|(allocation, _)| allocation).collect())
+        Ok(allocations
+            .into_iter()
+            .map(|(allocation, _)| allocation)
+            .collect())
     }
 }
 
