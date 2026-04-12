@@ -112,12 +112,13 @@ impl VaultManager {
     }
 
     /// Add a new LP-token pool to the underlying farm.
+    /// Rejects derivative tokens that are on the farm's blocklist.
     pub fn add_farm_pool(
         &mut self,
         lp_token: AssetId,
         alloc_point: u64,
         timestamp: Timestamp,
-    ) -> usize {
+    ) -> DefiResult<usize> {
         self.farm.add_pool(lp_token, alloc_point, timestamp)
     }
 
@@ -271,7 +272,7 @@ mod tests {
 
     fn manager() -> VaultManager {
         let mut mgr = VaultManager::new(Amount::new(100));
-        mgr.add_farm_pool(AssetId::new("LP"), 100, ts(0));
+        mgr.add_farm_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         mgr
     }
 
@@ -422,7 +423,7 @@ mod tests {
     #[test]
     fn compound_due_vaults_compounds_multiple_vaults() {
         let mut mgr = VaultManager::new(Amount::new(200));
-        mgr.add_farm_pool(AssetId::new("LP"), 100, ts(0));
+        mgr.add_farm_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
 
         let id1 = mgr.create_vault(0, addr(10), default_config()).unwrap();
         let id2 = mgr.create_vault(0, addr(20), default_config()).unwrap();
@@ -520,5 +521,39 @@ mod tests {
 
         let snap = mgr.vault(id).unwrap().inner.risk_snapshot;
         assert_eq!(snap.governance_boost_bps, 11_000);
+    }
+
+    // ── derivative token blocklist (issue #47) ───────────────────────────────
+
+    #[test]
+    fn blocked_derivative_token_rejects_pool_via_manager() {
+        let mut mgr = VaultManager::new(Amount::new(100));
+        mgr.farm.block_derivative_token(AssetId::new("stWRF"));
+
+        let result = mgr.add_farm_pool(AssetId::new("stWRF"), 100, ts(0));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn vault_cannot_compound_into_blocked_derivative_pool() {
+        // Even if a pool was created before the block, the block prevents
+        // NEW pools — existing pools continue functioning (admin must
+        // wind them down via governance).
+        let mut mgr = VaultManager::new(Amount::new(100));
+
+        // Create pool before block
+        mgr.add_farm_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
+        let id = mgr.create_vault(0, addr(99), default_config()).unwrap();
+        mgr.deposit(id, addr(1), Amount::new(1_000), ts(0)).unwrap();
+
+        // Block stWRF — existing LP pool is unaffected
+        mgr.farm.block_derivative_token(AssetId::new("stWRF"));
+
+        // Compound still works on the legitimate pool
+        let result = mgr.compound_vault(id, ts(10)).unwrap();
+        assert_eq!(result.harvested_rewards, Amount::new(1_000));
+
+        // But cannot create a new stWRF pool
+        assert!(mgr.add_farm_pool(AssetId::new("stWRF"), 50, ts(10)).is_err());
     }
 }

@@ -559,7 +559,7 @@ mod tests {
 
     fn farm_manager() -> FarmManager {
         let mut farm = FarmManager::new(Amount::new(100));
-        farm.add_pool(AssetId::new("LP"), 100, ts(0));
+        farm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         farm
     }
 
