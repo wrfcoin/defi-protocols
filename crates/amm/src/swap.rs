@@ -40,19 +40,21 @@ impl SwapEngine {
 
         // amount_in_after_fee = amount_in * (10_000 - fee_rate) / 10_000
         let fee_complement = 10_000u128 - fee_rate_bps as u128;
-        let amount_in_with_fee = amount_in
-            .0
-            .checked_mul(fee_complement)
-            .ok_or(DefiError::Overflow {
-                operation: "swap fee calculation".into(),
-            })?;
+        let amount_in_with_fee =
+            amount_in
+                .0
+                .checked_mul(fee_complement)
+                .ok_or(DefiError::Overflow {
+                    operation: "swap fee calculation".into(),
+                })?;
 
         // numerator = amount_in_with_fee * reserve_out
-        let numerator = amount_in_with_fee
-            .checked_mul(reserve_out.0)
-            .ok_or(DefiError::Overflow {
-                operation: "swap numerator".into(),
-            })?;
+        let numerator =
+            amount_in_with_fee
+                .checked_mul(reserve_out.0)
+                .ok_or(DefiError::Overflow {
+                    operation: "swap numerator".into(),
+                })?;
 
         // denominator = reserve_in * 10_000 + amount_in_with_fee
         let denominator = reserve_in
@@ -146,7 +148,8 @@ impl SwapEngine {
             (pool.reserve_b, pool.reserve_a)
         };
 
-        let amount_out = self.get_amount_out(amount_in, reserve_in, reserve_out, pool.fee_rate_bps)?;
+        let amount_out =
+            self.get_amount_out(amount_in, reserve_in, reserve_out, pool.fee_rate_bps)?;
 
         if amount_out < min_amount_out {
             return Err(DefiError::Slippage {
@@ -157,19 +160,31 @@ impl SwapEngine {
 
         // Update reserves.
         if is_a_to_b {
-            pool.reserve_a = pool.reserve_a.checked_add(amount_in).ok_or(DefiError::Overflow {
-                operation: "swap reserve_a increase".into(),
-            })?;
-            pool.reserve_b = pool.reserve_b.checked_sub(amount_out).ok_or(DefiError::Overflow {
-                operation: "swap reserve_b decrease".into(),
-            })?;
+            pool.reserve_a = pool
+                .reserve_a
+                .checked_add(amount_in)
+                .ok_or(DefiError::Overflow {
+                    operation: "swap reserve_a increase".into(),
+                })?;
+            pool.reserve_b = pool
+                .reserve_b
+                .checked_sub(amount_out)
+                .ok_or(DefiError::Overflow {
+                    operation: "swap reserve_b decrease".into(),
+                })?;
         } else {
-            pool.reserve_b = pool.reserve_b.checked_add(amount_in).ok_or(DefiError::Overflow {
-                operation: "swap reserve_b increase".into(),
-            })?;
-            pool.reserve_a = pool.reserve_a.checked_sub(amount_out).ok_or(DefiError::Overflow {
-                operation: "swap reserve_a decrease".into(),
-            })?;
+            pool.reserve_b = pool
+                .reserve_b
+                .checked_add(amount_in)
+                .ok_or(DefiError::Overflow {
+                    operation: "swap reserve_b increase".into(),
+                })?;
+            pool.reserve_a = pool
+                .reserve_a
+                .checked_sub(amount_out)
+                .ok_or(DefiError::Overflow {
+                    operation: "swap reserve_a decrease".into(),
+                })?;
         }
 
         Ok(amount_out)
@@ -183,6 +198,7 @@ impl SwapEngine {
     /// The oracle must have been initialised for this pool/asset pair via
     /// [`TwapOracle::init_pool_asset`] before this method is called; if not, the swap
     /// still succeeds but no observation is recorded.
+    #[allow(clippy::too_many_arguments)]
     pub fn execute_swap_with_twap(
         &self,
         pool: &mut LiquidityPool,
@@ -241,9 +257,9 @@ mod tests {
         // numerator = 997_000 * 1000 = 997_000_000
         // denominator = 1000 * 10_000 + 997_000 = 10_997_000
         // out = 997_000_000 / 10_997_000 = 90
-        let out = engine.get_amount_out(
-            Amount::new(100), Amount::new(1000), Amount::new(1000), 30
-        ).unwrap();
+        let out = engine
+            .get_amount_out(Amount::new(100), Amount::new(1000), Amount::new(1000), 30)
+            .unwrap();
         assert_eq!(out, Amount::new(90));
     }
 
@@ -265,9 +281,9 @@ mod tests {
     fn test_get_amount_in_basic() {
         let engine = SwapEngine::new();
         // Want 90 B from pool with 1000 A, 1000 B
-        let amount_in = engine.get_amount_in(
-            Amount::new(90), Amount::new(1000), Amount::new(1000), 30
-        ).unwrap();
+        let amount_in = engine
+            .get_amount_in(Amount::new(90), Amount::new(1000), Amount::new(1000), 30)
+            .unwrap();
         // Should need ~100 A (plus rounding up)
         assert!(amount_in.0 >= 99 && amount_in.0 <= 101);
     }
@@ -275,7 +291,8 @@ mod tests {
     #[test]
     fn test_get_amount_in_exceeds_reserves_fails() {
         let engine = SwapEngine::new();
-        let result = engine.get_amount_in(Amount::new(1000), Amount::new(100), Amount::new(500), 30);
+        let result =
+            engine.get_amount_in(Amount::new(1000), Amount::new(100), Amount::new(500), 30);
         assert!(result.is_err());
     }
 
@@ -283,7 +300,9 @@ mod tests {
     fn test_execute_swap_a_to_b() {
         let engine = SwapEngine::new();
         let mut pool = make_pool(1000, 1000);
-        let out = engine.execute_swap(&mut pool, Amount::new(100), true, Amount::ZERO).unwrap();
+        let out = engine
+            .execute_swap(&mut pool, Amount::new(100), true, Amount::ZERO)
+            .unwrap();
         assert!(out.0 > 0);
         assert_eq!(pool.reserve_a, Amount::new(1100));
         assert_eq!(pool.reserve_b, Amount::new(1000 - out.0));
@@ -293,7 +312,9 @@ mod tests {
     fn test_execute_swap_b_to_a() {
         let engine = SwapEngine::new();
         let mut pool = make_pool(1000, 1000);
-        let out = engine.execute_swap(&mut pool, Amount::new(100), false, Amount::ZERO).unwrap();
+        let out = engine
+            .execute_swap(&mut pool, Amount::new(100), false, Amount::ZERO)
+            .unwrap();
         assert!(out.0 > 0);
         assert_eq!(pool.reserve_b, Amount::new(1100));
         assert_eq!(pool.reserve_a, Amount::new(1000 - out.0));
@@ -313,7 +334,9 @@ mod tests {
         let engine = SwapEngine::new();
         let mut pool = make_pool(10_000, 10_000);
         let k_before = pool.invariant().unwrap();
-        engine.execute_swap(&mut pool, Amount::new(500), true, Amount::ZERO).unwrap();
+        engine
+            .execute_swap(&mut pool, Amount::new(500), true, Amount::ZERO)
+            .unwrap();
         let k_after = pool.invariant().unwrap();
         // k should increase (fees are kept in the pool)
         assert!(k_after >= k_before);

@@ -4,7 +4,7 @@ use crate::escrow::{
 };
 use crate::utility_hooks::UtilityRewardHook;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use wrfcoin_defi_common::error::{DefiError, DefiResult};
 use wrfcoin_defi_common::types::{
     Address, Amount, AssetId, PoolId, Timestamp, UtilitySignalSnapshot,
@@ -77,6 +77,10 @@ pub struct FarmManager {
     pub user_multiplier_limits_bps: HashMap<Address, u16>,
     /// Reward escrow state for quality/utility verification-gated payouts.
     pub reward_escrow: RewardEscrowBook,
+    /// Derivative tokens blocked from being used as farm pool LP tokens.
+    /// Prevents reward stacking amplification where derivative tokens (e.g. stWRF)
+    /// earn both underlying staking rewards and farm rewards simultaneously.
+    pub blocked_lp_tokens: HashSet<AssetId>,
 }
 
 impl FarmManager {
@@ -91,11 +95,32 @@ impl FarmManager {
             pool_utility_signals: HashMap::new(),
             user_multiplier_limits_bps: HashMap::new(),
             reward_escrow: RewardEscrowBook::default(),
+            blocked_lp_tokens: HashSet::new(),
         }
     }
 
+    /// Block a derivative token from being used as a farm pool LP token.
+    /// Prevents reward stacking amplification (issue #47).
+    pub fn block_derivative_token(&mut self, asset_id: AssetId) {
+        self.blocked_lp_tokens.insert(asset_id);
+    }
+
+    /// Remove a token from the derivative blocklist.
+    pub fn unblock_derivative_token(&mut self, asset_id: &AssetId) {
+        self.blocked_lp_tokens.remove(asset_id);
+    }
+
     /// Add a new farming pool. Returns its index.
-    pub fn add_pool(&mut self, lp_token: AssetId, alloc_point: u64, timestamp: Timestamp) -> usize {
+    /// Rejects derivative tokens that are on the blocklist.
+    pub fn add_pool(
+        &mut self,
+        lp_token: AssetId,
+        alloc_point: u64,
+        timestamp: Timestamp,
+    ) -> DefiResult<usize> {
+        if self.blocked_lp_tokens.contains(&lp_token) {
+            return Err(DefiError::InvalidAsset { asset_id: lp_token });
+        }
         let pool_id = PoolId::new(self.pools.len() as u64);
         self.pools.push(FarmPool {
             pool_id,
@@ -109,10 +134,8 @@ impl FarmManager {
         });
         self.total_alloc_point += alloc_point;
         let pool_index = self.pools.len() - 1;
-        self.pool_utility_signals
-            .entry(pool_index)
-            .or_insert_with(UtilitySignalSnapshot::default);
-        pool_index
+        self.pool_utility_signals.entry(pool_index).or_default();
+        Ok(pool_index)
     }
 
     /// Update utility signal snapshot used by reward hooks for a pool.
@@ -686,7 +709,7 @@ mod tests {
     #[test]
     fn test_add_pool() {
         let mut fm = FarmManager::new(Amount::new(100));
-        let idx = fm.add_pool(AssetId::new("LP-A"), 100, ts(0));
+        let idx = fm.add_pool(AssetId::new("LP-A"), 100, ts(0)).unwrap();
         assert_eq!(idx, 0);
         assert_eq!(fm.pools.len(), 1);
         assert_eq!(fm.total_alloc_point, 100);
@@ -695,7 +718,7 @@ mod tests {
     #[test]
     fn test_deposit_initial() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         let pending = fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
         assert_eq!(pending, Amount::ZERO); // No pending on first deposit
         assert_eq!(fm.pools[0].total_staked, Amount::new(1000));
@@ -704,7 +727,7 @@ mod tests {
     #[test]
     fn test_reward_accrual() {
         let mut fm = FarmManager::new(Amount::new(100)); // 100 tokens/sec
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         // After 10 seconds: 100 * 10 = 1000 tokens for the pool
@@ -715,7 +738,7 @@ mod tests {
     #[test]
     fn test_withdraw_harvests_rewards() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         // Withdraw after 10 seconds
@@ -727,7 +750,7 @@ mod tests {
     #[test]
     fn test_withdraw_more_than_staked_fails() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
         let result = fm.withdraw(addr(1), 0, Amount::new(2000), ts(10));
         assert!(result.is_err());
@@ -736,7 +759,7 @@ mod tests {
     #[test]
     fn test_two_users_split_rewards() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
 
         // User 1 deposits at t=0
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
@@ -754,8 +777,8 @@ mod tests {
     #[test]
     fn test_multiple_pools_allocation() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP-A"), 75, ts(0)); // 75%
-        fm.add_pool(AssetId::new("LP-B"), 25, ts(0)); // 25%
+        fm.add_pool(AssetId::new("LP-A"), 75, ts(0)).unwrap(); // 75%
+        fm.add_pool(AssetId::new("LP-B"), 25, ts(0)).unwrap(); // 25%
 
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
         fm.deposit(addr(2), 1, Amount::new(1000), ts(0)).unwrap();
@@ -771,7 +794,7 @@ mod tests {
     #[test]
     fn test_pending_rewards_no_stake() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         let pending = fm.pending_rewards(&addr(99), 0, ts(10)).unwrap();
         assert_eq!(pending, Amount::ZERO);
     }
@@ -779,7 +802,7 @@ mod tests {
     #[test]
     fn test_utility_signal_penalizes_low_verified_usefulness() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.set_pool_utility_signal(
             0,
             UtilitySignalSnapshot {
@@ -800,7 +823,7 @@ mod tests {
     #[test]
     fn test_utility_signal_boosts_high_verified_usefulness() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.set_pool_utility_signal(
             0,
             UtilitySignalSnapshot {
@@ -822,7 +845,7 @@ mod tests {
     fn test_global_emission_cap_clamps_rewards() {
         let mut fm = FarmManager::new(Amount::new(100));
         fm.set_global_emission_cap(Amount::new(60));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
@@ -832,7 +855,7 @@ mod tests {
     #[test]
     fn test_pool_emission_cap_clamps_rewards() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.set_pool_emission_cap(0, Amount::new(30)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
@@ -843,7 +866,7 @@ mod tests {
     #[test]
     fn test_user_multiplier_limit_caps_boosted_rewards() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.set_user_multiplier_limit(addr(1), 11_000).unwrap();
         fm.set_pool_utility_signal(
             0,
@@ -865,7 +888,7 @@ mod tests {
     #[test]
     fn test_harvest_holds_until_quality_verification_settles() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         let source = MockQualitySource::new(vec![QualityVerificationOutcome::Pending]);
@@ -912,7 +935,7 @@ mod tests {
     #[test]
     fn test_harvest_forfeits_low_quality_outcomes() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         let outcome = QualityVerificationOutcome::Verified {
@@ -935,7 +958,7 @@ mod tests {
     #[test]
     fn test_harvest_forfeits_fraudulent_outcomes() {
         let mut fm = FarmManager::new(Amount::new(100));
-        fm.add_pool(AssetId::new("LP"), 100, ts(0));
+        fm.add_pool(AssetId::new("LP"), 100, ts(0)).unwrap();
         fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
 
         let settlement = fm
@@ -954,5 +977,83 @@ mod tests {
             } => assert_eq!(amount, Amount::new(1000)),
             _ => panic!("expected fraudulent rewards to be forfeited"),
         }
+    }
+
+    // ── derivative token blocklist (issue #47) ───────────────────────────────
+
+    #[test]
+    fn blocked_derivative_token_rejects_pool_creation() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.block_derivative_token(AssetId::new("stWRF"));
+
+        let result = fm.add_pool(AssetId::new("stWRF"), 100, ts(0));
+        assert!(matches!(result, Err(DefiError::InvalidAsset { .. })));
+        assert_eq!(fm.pools.len(), 0);
+    }
+
+    #[test]
+    fn non_blocked_token_pool_creation_succeeds() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.block_derivative_token(AssetId::new("stWRF"));
+
+        let idx = fm.add_pool(AssetId::new("WRF"), 100, ts(0)).unwrap();
+        assert_eq!(idx, 0);
+        assert_eq!(fm.pools.len(), 1);
+    }
+
+    #[test]
+    fn unblocked_token_allows_pool_creation_again() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.block_derivative_token(AssetId::new("stWRF"));
+
+        assert!(fm.add_pool(AssetId::new("stWRF"), 100, ts(0)).is_err());
+
+        fm.unblock_derivative_token(&AssetId::new("stWRF"));
+        let idx = fm.add_pool(AssetId::new("stWRF"), 100, ts(0)).unwrap();
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn multiple_derivative_tokens_all_blocked() {
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.block_derivative_token(AssetId::new("stWRF"));
+        fm.block_derivative_token(AssetId::new("vaultLP-stWRF"));
+
+        assert!(fm.add_pool(AssetId::new("stWRF"), 50, ts(0)).is_err());
+        assert!(fm
+            .add_pool(AssetId::new("vaultLP-stWRF"), 50, ts(0))
+            .is_err());
+
+        // Normal tokens still work
+        let idx = fm
+            .add_pool(AssetId::new("LP-WRF-USDC"), 100, ts(0))
+            .unwrap();
+        assert_eq!(idx, 0);
+    }
+
+    #[test]
+    fn reward_stacking_amplification_prevented() {
+        // Prove that the stWRF → farm stacking path is blocked:
+        // 1. Block stWRF as a derivative token
+        // 2. Attempt to create a stWRF farm pool → fails
+        // 3. Without the block, stWRF in a farm would earn both staking APY
+        //    AND farm APY, amplifying effective yield beyond intended inflation.
+        let mut fm = FarmManager::new(Amount::new(100));
+        fm.block_derivative_token(AssetId::new("stWRF"));
+
+        // Cannot create a pool that accepts stWRF deposits
+        let err = fm.add_pool(AssetId::new("stWRF"), 100, ts(0)).unwrap_err();
+        assert!(
+            matches!(err, DefiError::InvalidAsset { ref asset_id } if asset_id.as_str() == "stWRF"),
+            "expected InvalidAsset for stWRF, got: {err}"
+        );
+
+        // Can still create a pool for normal WRF LP tokens
+        fm.add_pool(AssetId::new("LP-WRF"), 100, ts(0)).unwrap();
+        fm.deposit(addr(1), 0, Amount::new(1000), ts(0)).unwrap();
+
+        // Normal farm rewards work as expected (no amplification)
+        let pending = fm.pending_rewards(&addr(1), 0, ts(10)).unwrap();
+        assert_eq!(pending, Amount::new(1000)); // 100 rps * 10s, single-source yield only
     }
 }

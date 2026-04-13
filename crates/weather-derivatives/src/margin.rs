@@ -3,11 +3,11 @@
 //! Margin is held in WRF base units.  The engine tracks per-account balances and
 //! evaluates positions against a mark price to determine under-margined accounts.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use wrfcoin_defi_common::types::{Address, Amount};
 use crate::error::{DerivativesError, DerivativesResult};
 use crate::futures::FutureId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use wrfcoin_defi_common::types::{Address, Amount};
 
 /// Configuration for margin requirements.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -135,25 +135,29 @@ impl MarginEngine {
                 reason: "deposit amount must be non-zero".into(),
             });
         }
-        let account = self.accounts.entry(trader).or_insert_with(|| MarginAccount::new(trader));
-        account.balance = account
-            .balance
-            .checked_add(amount)
-            .ok_or(DerivativesError::Overflow {
-                operation: "margin deposit".into(),
-            })?;
+        let account = self
+            .accounts
+            .entry(trader)
+            .or_insert_with(|| MarginAccount::new(trader));
+        account.balance =
+            account
+                .balance
+                .checked_add(amount)
+                .ok_or(DerivativesError::Overflow {
+                    operation: "margin deposit".into(),
+                })?;
         Ok(())
     }
 
     /// Withdraw free (unreserved) margin.
     pub fn withdraw(&mut self, trader: Address, amount: Amount) -> DerivativesResult<()> {
-        let account = self
-            .accounts
-            .get_mut(&trader)
-            .ok_or(DerivativesError::InsufficientMargin {
-                required: amount,
-                available: Amount::ZERO,
-            })?;
+        let account =
+            self.accounts
+                .get_mut(&trader)
+                .ok_or(DerivativesError::InsufficientMargin {
+                    required: amount,
+                    available: Amount::ZERO,
+                })?;
 
         let free = account.free_balance();
         if amount > free {
@@ -162,9 +166,13 @@ impl MarginEngine {
                 available: free,
             });
         }
-        account.balance = account.balance.checked_sub(amount).ok_or(DerivativesError::Overflow {
-            operation: "margin withdraw".into(),
-        })?;
+        account.balance =
+            account
+                .balance
+                .checked_sub(amount)
+                .ok_or(DerivativesError::Overflow {
+                    operation: "margin withdraw".into(),
+                })?;
         Ok(())
     }
 
@@ -175,20 +183,20 @@ impl MarginEngine {
         trader: Address,
         notional: Amount,
     ) -> DerivativesResult<()> {
-        let required = self
-            .config
-            .initial_margin_required(notional)
-            .ok_or(DerivativesError::Overflow {
-                operation: "initial margin calculation".into(),
-            })?;
+        let required =
+            self.config
+                .initial_margin_required(notional)
+                .ok_or(DerivativesError::Overflow {
+                    operation: "initial margin calculation".into(),
+                })?;
 
-        let account = self
-            .accounts
-            .get_mut(&trader)
-            .ok_or(DerivativesError::InsufficientMargin {
-                required,
-                available: Amount::ZERO,
-            })?;
+        let account =
+            self.accounts
+                .get_mut(&trader)
+                .ok_or(DerivativesError::InsufficientMargin {
+                    required,
+                    available: Amount::ZERO,
+                })?;
 
         if required > account.free_balance() {
             return Err(DerivativesError::InsufficientMargin {
@@ -197,27 +205,31 @@ impl MarginEngine {
             });
         }
 
-        account.reserved = account
-            .reserved
-            .checked_add(required)
-            .ok_or(DerivativesError::Overflow {
-                operation: "reserve margin".into(),
-            })?;
+        account.reserved =
+            account
+                .reserved
+                .checked_add(required)
+                .ok_or(DerivativesError::Overflow {
+                    operation: "reserve margin".into(),
+                })?;
         Ok(())
     }
 
     /// Release reserved margin (e.g., on position close or settlement).
     pub fn release_reserved(&mut self, trader: Address, amount: Amount) -> DerivativesResult<()> {
-        let account = self.accounts.get_mut(&trader).ok_or_else(|| {
-            DerivativesError::InvalidParameter {
-                reason: "account not found".into(),
-            }
-        })?;
-        account.reserved = account.reserved.checked_sub(amount).ok_or(
-            DerivativesError::Overflow {
-                operation: "release reserved margin".into(),
-            },
-        )?;
+        let account =
+            self.accounts
+                .get_mut(&trader)
+                .ok_or_else(|| DerivativesError::InvalidParameter {
+                    reason: "account not found".into(),
+                })?;
+        account.reserved =
+            account
+                .reserved
+                .checked_sub(amount)
+                .ok_or(DerivativesError::Overflow {
+                    operation: "release reserved margin".into(),
+                })?;
         Ok(())
     }
 
@@ -231,12 +243,13 @@ impl MarginEngine {
 
         if pnl_signed >= 0 {
             let gain = Amount::new(pnl_signed as u128);
-            account.balance = account
-                .balance
-                .checked_add(gain)
-                .ok_or(DerivativesError::Overflow {
-                    operation: "mtm gain".into(),
-                })?;
+            account.balance =
+                account
+                    .balance
+                    .checked_add(gain)
+                    .ok_or(DerivativesError::Overflow {
+                        operation: "mtm gain".into(),
+                    })?;
         } else {
             let loss = Amount::new((-pnl_signed) as u128);
             // If loss exceeds balance, clamp to zero (account is insolvent).
@@ -301,7 +314,10 @@ mod tests {
     fn test_deposit_and_balance() {
         let mut engine = MarginEngine::with_default_config();
         engine.deposit(addr(1), Amount::new(10_000)).unwrap();
-        assert_eq!(engine.get_account(&addr(1)).unwrap().balance, Amount::new(10_000));
+        assert_eq!(
+            engine.get_account(&addr(1)).unwrap().balance,
+            Amount::new(10_000)
+        );
     }
 
     #[test]
@@ -309,7 +325,10 @@ mod tests {
         let mut engine = MarginEngine::with_default_config();
         engine.deposit(addr(1), Amount::new(10_000)).unwrap();
         engine.withdraw(addr(1), Amount::new(3_000)).unwrap();
-        assert_eq!(engine.get_account(&addr(1)).unwrap().balance, Amount::new(7_000));
+        assert_eq!(
+            engine.get_account(&addr(1)).unwrap().balance,
+            Amount::new(7_000)
+        );
     }
 
     #[test]
@@ -324,7 +343,9 @@ mod tests {
         let mut engine = MarginEngine::with_default_config();
         // Config: 10% initial. notional = 10_000 → required = 1_000
         engine.deposit(addr(1), Amount::new(2_000)).unwrap();
-        engine.reserve_initial_margin(addr(1), Amount::new(10_000)).unwrap();
+        engine
+            .reserve_initial_margin(addr(1), Amount::new(10_000))
+            .unwrap();
         let acc = engine.get_account(&addr(1)).unwrap();
         assert_eq!(acc.reserved, Amount::new(1_000));
         assert_eq!(acc.free_balance(), Amount::new(1_000));
@@ -335,7 +356,9 @@ mod tests {
         let mut engine = MarginEngine::with_default_config();
         engine.deposit(addr(1), Amount::new(500)).unwrap();
         // initial margin for 10_000 notional = 1_000, but we only have 500 free
-        assert!(engine.reserve_initial_margin(addr(1), Amount::new(10_000)).is_err());
+        assert!(engine
+            .reserve_initial_margin(addr(1), Amount::new(10_000))
+            .is_err());
     }
 
     #[test]
@@ -343,7 +366,10 @@ mod tests {
         let mut engine = MarginEngine::with_default_config();
         engine.deposit(addr(1), Amount::new(1_000)).unwrap();
         engine.mark_to_market(addr(1), 500).unwrap();
-        assert_eq!(engine.get_account(&addr(1)).unwrap().balance, Amount::new(1_500));
+        assert_eq!(
+            engine.get_account(&addr(1)).unwrap().balance,
+            Amount::new(1_500)
+        );
     }
 
     #[test]
@@ -351,7 +377,10 @@ mod tests {
         let mut engine = MarginEngine::with_default_config();
         engine.deposit(addr(1), Amount::new(1_000)).unwrap();
         engine.mark_to_market(addr(1), -400).unwrap();
-        assert_eq!(engine.get_account(&addr(1)).unwrap().balance, Amount::new(600));
+        assert_eq!(
+            engine.get_account(&addr(1)).unwrap().balance,
+            Amount::new(600)
+        );
     }
 
     #[test]

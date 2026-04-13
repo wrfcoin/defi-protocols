@@ -144,19 +144,23 @@ impl InsuranceVault {
 
     /// Deposit `amount` of WRF into the vault, minting shares for the underwriter.
     /// Returns the number of shares minted.
-    pub fn deposit(&mut self, underwriter: Address, amount: Amount) -> InsuranceResult<VaultShares> {
+    pub fn deposit(
+        &mut self,
+        underwriter: Address,
+        amount: Amount,
+    ) -> InsuranceResult<VaultShares> {
         if amount.is_zero() {
             return Err(InsuranceError::ZeroDeposit);
         }
 
         let shares_minted = self.assets_to_shares(amount)?;
 
-        self.total_assets = self
-            .total_assets
-            .checked_add(amount)
-            .ok_or_else(|| InsuranceError::Overflow {
-                operation: "vault deposit".into(),
-            })?;
+        self.total_assets =
+            self.total_assets
+                .checked_add(amount)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "vault deposit".into(),
+                })?;
         self.total_shares = self
             .total_shares
             .checked_add(shares_minted)
@@ -198,19 +202,19 @@ impl InsuranceVault {
 
         if held < shares {
             return Err(InsuranceError::InsufficientShares {
-                underwriter: format!("{}", underwriter),
+                underwriter: format!("{underwriter}"),
             });
         }
 
         let assets_out = self.shares_to_assets(shares.0)?;
 
         // Check capital ratio after withdrawal.
-        let new_total_assets = self
-            .total_assets
-            .checked_sub(assets_out)
-            .ok_or_else(|| InsuranceError::Overflow {
-                operation: "vault withdraw".into(),
-            })?;
+        let new_total_assets =
+            self.total_assets
+                .checked_sub(assets_out)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "vault withdraw".into(),
+                })?;
 
         self.check_capital_ratio_for_assets(new_total_assets)?;
 
@@ -229,12 +233,12 @@ impl InsuranceVault {
 
     /// Add collected premium to vault assets (called when a policy is issued).
     pub fn collect_premium(&mut self, premium: Amount) -> InsuranceResult<()> {
-        self.total_assets = self
-            .total_assets
-            .checked_add(premium)
-            .ok_or_else(|| InsuranceError::Overflow {
-                operation: "collect_premium".into(),
-            })?;
+        self.total_assets =
+            self.total_assets
+                .checked_add(premium)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "collect_premium".into(),
+                })?;
         Ok(())
     }
 
@@ -253,11 +257,12 @@ impl InsuranceVault {
             .get(trigger_type_key)
             .copied()
             .unwrap_or(Amount::ZERO);
-        let new_trigger_exp = current_trigger_exp
-            .checked_add(payout)
-            .ok_or_else(|| InsuranceError::Overflow {
-                operation: "reserve trigger exposure".into(),
-            })?;
+        let new_trigger_exp =
+            current_trigger_exp
+                .checked_add(payout)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "reserve trigger exposure".into(),
+                })?;
         if new_trigger_exp > self.risk_limits.max_exposure_per_trigger_type {
             return Err(InsuranceError::RiskLimitExceeded {
                 reason: format!(
@@ -275,29 +280,28 @@ impl InsuranceVault {
             .get(region_key)
             .copied()
             .unwrap_or(Amount::ZERO);
-        let new_region_exp = current_region_exp
-            .checked_add(payout)
-            .ok_or_else(|| InsuranceError::Overflow {
-                operation: "reserve region exposure".into(),
-            })?;
+        let new_region_exp =
+            current_region_exp
+                .checked_add(payout)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "reserve region exposure".into(),
+                })?;
         if new_region_exp > self.risk_limits.max_exposure_per_region {
             return Err(InsuranceError::RiskLimitExceeded {
                 reason: format!(
                     "region '{}' exposure {}/{} would exceed limit",
-                    region_key,
-                    new_region_exp.0,
-                    self.risk_limits.max_exposure_per_region.0
+                    region_key, new_region_exp.0, self.risk_limits.max_exposure_per_region.0
                 ),
             });
         }
 
         // Check capital ratio: free_capital ≥ min_capital_ratio_bps × total_exposure / 10_000
-        let new_total_exposure = self
-            .total_exposure
-            .checked_add(payout)
-            .ok_or_else(|| InsuranceError::Overflow {
-                operation: "total_exposure".into(),
-            })?;
+        let new_total_exposure =
+            self.total_exposure
+                .checked_add(payout)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "total_exposure".into(),
+                })?;
         self.check_capital_ratio_for_exposure(self.total_assets, new_total_exposure)?;
 
         // Commit.
@@ -315,12 +319,7 @@ impl InsuranceVault {
     }
 
     /// Release exposure when a policy expires without payout.
-    pub fn release_exposure(
-        &mut self,
-        payout: Amount,
-        trigger_type_key: &str,
-        region_key: &str,
-    ) {
+    pub fn release_exposure(&mut self, payout: Amount, trigger_type_key: &str, region_key: &str) {
         self.total_exposure = Amount::new(self.total_exposure.0.saturating_sub(payout.0));
         if let Some(v) = self.exposure_by_trigger_type.get_mut(trigger_type_key) {
             v.0 = v.0.saturating_sub(payout.0);
@@ -338,11 +337,12 @@ impl InsuranceVault {
                 available: self.total_assets,
             });
         }
-        self.total_assets = self.total_assets.checked_sub(payout).ok_or_else(|| {
-            InsuranceError::Overflow {
-                operation: "execute_payout".into(),
-            }
-        })?;
+        self.total_assets =
+            self.total_assets
+                .checked_sub(payout)
+                .ok_or_else(|| InsuranceError::Overflow {
+                    operation: "execute_payout".into(),
+                })?;
         Ok(())
     }
 
@@ -383,8 +383,7 @@ impl InsuranceVault {
                 operation: "capital_ratio_check".into(),
             })?;
         if total_assets.0 < required {
-            let actual_bps = (total_assets.0.saturating_mul(10_000)
-                / total_exposure.0) as u64;
+            let actual_bps = (total_assets.0.saturating_mul(10_000) / total_exposure.0) as u64;
             return Err(InsuranceError::CapitalRatioBelowMinimum {
                 actual_bps,
                 min_bps: self.config.min_capital_ratio_bps,
@@ -421,7 +420,9 @@ mod tests {
 
     fn vault() -> InsuranceVault {
         InsuranceVault::new(
-            VaultConfig { min_capital_ratio_bps: 10_000 }, // 100%
+            VaultConfig {
+                min_capital_ratio_bps: 10_000,
+            }, // 100%
             RiskLimits {
                 max_exposure_per_trigger_type: Amount::new(1_000_000_000),
                 max_exposure_per_region: Amount::new(500_000_000),
@@ -495,9 +496,11 @@ mod tests {
 
         // Use distinct regions to avoid hitting the per-region (500M) limit first.
         // Should succeed: 400M < 1B trigger limit
-        v.reserve_exposure(Amount::new(400_000_000), "TemperatureAbove", "region-a").unwrap();
+        v.reserve_exposure(Amount::new(400_000_000), "TemperatureAbove", "region-a")
+            .unwrap();
         // Should succeed: 400M + 400M = 800M < 1B trigger limit
-        v.reserve_exposure(Amount::new(400_000_000), "TemperatureAbove", "region-b").unwrap();
+        v.reserve_exposure(Amount::new(400_000_000), "TemperatureAbove", "region-b")
+            .unwrap();
         // Should fail: 800M + 300M = 1.1B > 1B trigger limit
         let result = v.reserve_exposure(Amount::new(300_000_000), "TemperatureAbove", "region-c");
         assert!(result.is_err());
@@ -509,7 +512,8 @@ mod tests {
         v.deposit(addr(1), Amount::new(2_000_000_000)).unwrap();
 
         // Should succeed: 400M < 500M region limit
-        v.reserve_exposure(Amount::new(400_000_000), "TemperatureAbove", "40,-70").unwrap();
+        v.reserve_exposure(Amount::new(400_000_000), "TemperatureAbove", "40,-70")
+            .unwrap();
         // Should fail: 400M + 200M > 500M region limit
         let result = v.reserve_exposure(Amount::new(200_000_000), "WindSpeedAbove", "40,-70");
         assert!(result.is_err());
@@ -545,7 +549,8 @@ mod tests {
     fn release_exposure_removes_correctly() {
         let mut v = vault();
         v.deposit(addr(1), Amount::new(2_000_000_000)).unwrap();
-        v.reserve_exposure(Amount::new(500_000_000), "TemperatureAbove", "region").unwrap();
+        v.reserve_exposure(Amount::new(500_000_000), "TemperatureAbove", "region")
+            .unwrap();
         v.release_exposure(Amount::new(500_000_000), "TemperatureAbove", "region");
         assert_eq!(v.total_exposure, Amount::ZERO);
     }

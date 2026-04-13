@@ -19,11 +19,11 @@
 //! For weather indices there is no dividend yield.  When r ≈ 0, e^(-rT) ≈ 1,
 //! so we expose `risk_free_rate` as a parameter but it defaults to 0.0 in tests.
 
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
-use wrfcoin_defi_common::types::{Address, Amount};
 use crate::error::{DerivativesError, DerivativesResult};
 use crate::futures::FutureId;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use wrfcoin_defi_common::types::{Address, Amount};
 
 /// Call or Put option type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,7 +269,10 @@ mod tests {
             risk_free_rate: 0.0,
         };
         let price = params.price(OptionType::Call).unwrap();
-        assert!(price > 0.0, "ITM call should have positive price, got {price}");
+        assert!(
+            price > 0.0,
+            "ITM call should have positive price, got {price}"
+        );
     }
 
     #[test]
@@ -283,7 +286,10 @@ mod tests {
             risk_free_rate: 0.0,
         };
         let price = params.price(OptionType::Call).unwrap();
-        assert!(price < 1.0, "Deep OTM call should be near zero, got {price}");
+        assert!(
+            price < 1.0,
+            "Deep OTM call should be near zero, got {price}"
+        );
     }
 
     #[test]
@@ -296,7 +302,10 @@ mod tests {
             risk_free_rate: 0.0,
         };
         let price = params.price(OptionType::Put).unwrap();
-        assert!(price > 0.0, "ITM put should have positive price, got {price}");
+        assert!(
+            price > 0.0,
+            "ITM put should have positive price, got {price}"
+        );
     }
 
     #[test]
@@ -323,7 +332,10 @@ mod tests {
         };
         assert!(base.price(OptionType::Call).is_none());
 
-        let base2 = Black76Params { volatility: 0.0, ..base };
+        let base2 = Black76Params {
+            volatility: 0.0,
+            ..base
+        };
         assert!(base2.price(OptionType::Call).is_none());
     }
 
@@ -335,7 +347,14 @@ mod tests {
         let fid = FutureId(0);
         // Strike = 65, final = 72 → intrinsic = 7 CDD → payout = 7 × tick_size
         let id = engine
-            .write_option(fid, 65_000_000, 200, OptionType::Call, Amount::new(500), addr(1))
+            .write_option(
+                fid,
+                65_000_000,
+                200,
+                OptionType::Call,
+                Amount::new(500),
+                addr(1),
+            )
             .unwrap();
 
         // tick_size = 1_000_000 WRF base units per index unit
@@ -352,7 +371,14 @@ mod tests {
         let fid = FutureId(0);
         // Strike = 65, final = 50 → put intrinsic = 15 → payout = 15 × tick_size
         let id = engine
-            .write_option(fid, 65_000_000, 200, OptionType::Put, Amount::new(500), addr(2))
+            .write_option(
+                fid,
+                65_000_000,
+                200,
+                OptionType::Put,
+                Amount::new(500),
+                addr(2),
+            )
             .unwrap();
         let payout = engine
             .exercise(id, 50_000_000, 200, Amount::new(1_000_000))
@@ -366,7 +392,14 @@ mod tests {
         let fid = FutureId(0);
         // Call strike = 65, final = 50 → OTM
         let id = engine
-            .write_option(fid, 65_000_000, 200, OptionType::Call, Amount::new(100), addr(3))
+            .write_option(
+                fid,
+                65_000_000,
+                200,
+                OptionType::Call,
+                Amount::new(100),
+                addr(3),
+            )
             .unwrap();
         let payout = engine
             .exercise(id, 50_000_000, 200, Amount::new(1_000_000))
@@ -380,8 +413,17 @@ mod tests {
         let mut engine = OptionsEngine::new();
         let fid = FutureId(0);
         let id = engine
-            .write_option(fid, 65_000_000, 200, OptionType::Call, Amount::new(100), addr(4))
+            .write_option(
+                fid,
+                65_000_000,
+                200,
+                OptionType::Call,
+                Amount::new(100),
+                addr(4),
+            )
             .unwrap();
-        assert!(engine.exercise(id, 72_000_000, 199, Amount::new(1_000_000)).is_err());
+        assert!(engine
+            .exercise(id, 72_000_000, 199, Amount::new(1_000_000))
+            .is_err());
     }
 }

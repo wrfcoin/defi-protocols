@@ -157,12 +157,7 @@ mod tests {
         ObservationWindow::new(Timestamp::new(start), Timestamp::new(end))
     }
 
-    fn reading_attested(
-        temp: f64,
-        precip: f64,
-        wind: f64,
-        drought: f64,
-    ) -> WeatherReading {
+    fn reading_attested(temp: f64, precip: f64, wind: f64, drought: f64) -> WeatherReading {
         WeatherReading::new_attested(
             1000,
             coord(),
@@ -176,7 +171,9 @@ mod tests {
     /// Build a vault pre-loaded with enough capital.
     fn funded_vault(capital: u128) -> InsuranceVault {
         let mut v = InsuranceVault::new(
-            VaultConfig { min_capital_ratio_bps: 5_000 }, // 50% minimum
+            VaultConfig {
+                min_capital_ratio_bps: 5_000,
+            }, // 50% minimum
             RiskLimits {
                 max_exposure_per_trigger_type: Amount::new(u128::MAX / 2),
                 max_exposure_per_region: Amount::new(u128::MAX / 2),
@@ -201,11 +198,7 @@ mod tests {
     }
 
     // Helper: register policy and reserve exposure in vault.
-    fn setup_policy(
-        store: &mut PolicyStore,
-        vault: &mut InsuranceVault,
-        policy: ParametricPolicy,
-    ) {
+    fn setup_policy(store: &mut PolicyStore, vault: &mut InsuranceVault, policy: ParametricPolicy) {
         let trigger_key = policy.trigger.type_key().to_string();
         let region_key = policy.location.region_key();
         let payout = policy.payout;
@@ -244,8 +237,14 @@ mod tests {
                 payout_amount: 50_000_000
             }
         );
-        assert_eq!(vault.total_assets, Amount::new(before_assets.0 - 50_000_000));
-        assert_eq!(store.get(&PolicyId::new("p1")).unwrap().state, PolicyState::TriggeredPaid);
+        assert_eq!(
+            vault.total_assets,
+            Amount::new(before_assets.0 - 50_000_000)
+        );
+        assert_eq!(
+            store.get(&PolicyId::new("p1")).unwrap().state,
+            PolicyState::TriggeredPaid
+        );
     }
 
     // ── Miss path: trigger does not fire ──────────────────────────────────
@@ -271,11 +270,16 @@ mod tests {
 
         assert_eq!(
             outcome,
-            SettlementOutcome::Expired { policy_id: PolicyId::new("p2") }
+            SettlementOutcome::Expired {
+                policy_id: PolicyId::new("p2")
+            }
         );
         // Assets unchanged (no payout).
         assert_eq!(vault.total_assets, before_assets);
-        assert_eq!(store.get(&PolicyId::new("p2")).unwrap().state, PolicyState::Expired);
+        assert_eq!(
+            store.get(&PolicyId::new("p2")).unwrap().state,
+            PolicyState::Expired
+        );
     }
 
     // ── Window not closed ─────────────────────────────────────────────────

@@ -93,9 +93,11 @@ impl FeeManager {
             })?;
 
         // LP fee = total - protocol
-        let lp_fee = total_fee.checked_sub(protocol_fee).ok_or(DefiError::Overflow {
-            operation: "calculate_fee lp".into(),
-        })?;
+        let lp_fee = total_fee
+            .checked_sub(protocol_fee)
+            .ok_or(DefiError::Overflow {
+                operation: "calculate_fee lp".into(),
+            })?;
 
         Ok(FeeDistribution {
             lp_fee,
@@ -109,12 +111,16 @@ impl FeeManager {
         pool_id: &PoolId,
         distribution: &FeeDistribution,
     ) -> DefiResult<()> {
-        let accumulated = self.accumulated_protocol_fees.entry(*pool_id).or_insert(Amount::ZERO);
-        *accumulated = accumulated
-            .checked_add(distribution.protocol_fee)
-            .ok_or(DefiError::Overflow {
-                operation: "distribute_fees accumulation".into(),
-            })?;
+        let accumulated = self
+            .accumulated_protocol_fees
+            .entry(*pool_id)
+            .or_insert(Amount::ZERO);
+        *accumulated =
+            accumulated
+                .checked_add(distribution.protocol_fee)
+                .ok_or(DefiError::Overflow {
+                    operation: "distribute_fees accumulation".into(),
+                })?;
         Ok(())
     }
 

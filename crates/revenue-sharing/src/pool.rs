@@ -1,7 +1,7 @@
-use wrfcoin_defi_common::types::Amount;
 use crate::error::{RevenueError, RevenueResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use wrfcoin_defi_common::types::Amount;
 
 /// Accumulates protocol fees from all DeFi sources between distribution epochs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -30,21 +30,19 @@ impl RevenuePool {
 
     /// Deposit fees from a named source (e.g. "amm", "lending", "yield-farming").
     pub fn deposit(&mut self, source: &str, amount: Amount) -> RevenueResult<()> {
-        self.total_accumulated = self
-            .total_accumulated
-            .checked_add(amount)
-            .ok_or(RevenueError::Overflow {
-                operation: "deposit".into(),
-            })?;
+        self.total_accumulated =
+            self.total_accumulated
+                .checked_add(amount)
+                .ok_or(RevenueError::Overflow {
+                    operation: "deposit".into(),
+                })?;
         let entry = self
             .source_contributions
             .entry(source.to_string())
             .or_insert(Amount::ZERO);
-        *entry = entry
-            .checked_add(amount)
-            .ok_or(RevenueError::Overflow {
-                operation: "deposit source".into(),
-            })?;
+        *entry = entry.checked_add(amount).ok_or(RevenueError::Overflow {
+            operation: "deposit source".into(),
+        })?;
         Ok(())
     }
 

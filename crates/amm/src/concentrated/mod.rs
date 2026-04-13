@@ -58,6 +58,4 @@ pub use pool::ConcentratedLiquidityPool;
 pub use position::{ConcentratedPosition, PositionId};
 pub use sqrt_price::{sqrt_price_to_tick, tick_to_sqrt_price, SqrtPrice, Q64, TICK_MAX, TICK_MIN};
 pub use swap::SwapStep;
-pub use tick::{
-    compute_swap_step, fee_growth_inside, liquidity_to_amounts, Tick, TickBitmap,
-};
+pub use tick::{compute_swap_step, fee_growth_inside, liquidity_to_amounts, Tick, TickBitmap};

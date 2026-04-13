@@ -35,10 +35,7 @@ pub struct ObservationWindow {
 
 impl ObservationWindow {
     pub fn new(start_block: u64, end_block: u64) -> Self {
-        assert!(
-            end_block >= start_block,
-            "end_block must be >= start_block"
-        );
+        assert!(end_block >= start_block, "end_block must be >= start_block");
         Self {
             start_block,
             end_block,

@@ -65,7 +65,6 @@ impl Router {
         let mut visited: HashSet<AssetId> = HashSet::from([asset_in.clone()]);
 
         while let Some((current_asset, path)) = queue.pop_front() {
-
             if path.len() >= max_hops {
                 continue;
             }
@@ -93,10 +92,7 @@ impl Router {
                 }
 
                 let mut new_path = path.clone();
-                new_path.push(RouteHop {
-                    pool_id,
-                    is_a_to_b,
-                });
+                new_path.push(RouteHop { pool_id, is_a_to_b });
 
                 if next_asset == *asset_out {
                     return Some(new_path);
@@ -129,9 +125,12 @@ impl Router {
         let mut current_amount = amount_in;
 
         for (i, hop) in route.iter().enumerate() {
-            let pool = self.pools.get_mut(&hop.pool_id).ok_or(DefiError::InvalidPool {
-                pool_id: hop.pool_id,
-            })?;
+            let pool = self
+                .pools
+                .get_mut(&hop.pool_id)
+                .ok_or(DefiError::InvalidPool {
+                    pool_id: hop.pool_id,
+                })?;
 
             // For intermediate hops, no slippage check (set min to 0).
             // Only enforce slippage on the final hop.
@@ -148,11 +147,7 @@ impl Router {
     }
 
     /// Simulate a multi-hop swap to get the expected output without modifying state.
-    pub fn get_expected_output(
-        &self,
-        route: &[RouteHop],
-        amount_in: Amount,
-    ) -> DefiResult<Amount> {
+    pub fn get_expected_output(&self, route: &[RouteHop], amount_in: Amount) -> DefiResult<Amount> {
         let engine = SwapEngine::new();
         let mut current_amount = amount_in;
 
@@ -167,8 +162,12 @@ impl Router {
                 (pool.reserve_b, pool.reserve_a)
             };
 
-            current_amount =
-                engine.get_amount_out(current_amount, reserve_in, reserve_out, pool.fee_rate_bps)?;
+            current_amount = engine.get_amount_out(
+                current_amount,
+                reserve_in,
+                reserve_out,
+                pool.fee_rate_bps,
+            )?;
         }
 
         Ok(current_amount)
@@ -198,7 +197,9 @@ mod tests {
         let mut router = Router::new();
         router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
 
-        let route = router.find_route(&AssetId::new("A"), &AssetId::new("B"), 3).unwrap();
+        let route = router
+            .find_route(&AssetId::new("A"), &AssetId::new("B"), 3)
+            .unwrap();
         assert_eq!(route.len(), 1);
         assert_eq!(route[0].pool_id, PoolId::new(1));
         assert!(route[0].is_a_to_b);
@@ -209,7 +210,9 @@ mod tests {
         let mut router = Router::new();
         router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
 
-        let route = router.find_route(&AssetId::new("B"), &AssetId::new("A"), 3).unwrap();
+        let route = router
+            .find_route(&AssetId::new("B"), &AssetId::new("A"), 3)
+            .unwrap();
         assert_eq!(route.len(), 1);
         assert!(!route[0].is_a_to_b);
     }
@@ -220,7 +223,9 @@ mod tests {
         router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
         router.add_pool(make_pool_with_liquidity(2, "B", "C", 10_000));
 
-        let route = router.find_route(&AssetId::new("A"), &AssetId::new("C"), 3).unwrap();
+        let route = router
+            .find_route(&AssetId::new("A"), &AssetId::new("C"), 3)
+            .unwrap();
         assert_eq!(route.len(), 2);
     }
 
@@ -236,7 +241,9 @@ mod tests {
     #[test]
     fn test_same_asset_route() {
         let router = Router::new();
-        let route = router.find_route(&AssetId::new("A"), &AssetId::new("A"), 3).unwrap();
+        let route = router
+            .find_route(&AssetId::new("A"), &AssetId::new("A"), 3)
+            .unwrap();
         assert!(route.is_empty());
     }
 
@@ -246,8 +253,12 @@ mod tests {
         router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
         router.add_pool(make_pool_with_liquidity(2, "B", "C", 10_000));
 
-        let route = router.find_route(&AssetId::new("A"), &AssetId::new("C"), 3).unwrap();
-        let out = router.execute_multi_hop(&route, Amount::new(100), Amount::ZERO).unwrap();
+        let route = router
+            .find_route(&AssetId::new("A"), &AssetId::new("C"), 3)
+            .unwrap();
+        let out = router
+            .execute_multi_hop(&route, Amount::new(100), Amount::ZERO)
+            .unwrap();
         assert!(out.0 > 0);
     }
 
@@ -263,8 +274,12 @@ mod tests {
         let mut router = Router::new();
         router.add_pool(make_pool_with_liquidity(1, "A", "B", 10_000));
 
-        let route = router.find_route(&AssetId::new("A"), &AssetId::new("B"), 1).unwrap();
-        let expected = router.get_expected_output(&route, Amount::new(100)).unwrap();
+        let route = router
+            .find_route(&AssetId::new("A"), &AssetId::new("B"), 1)
+            .unwrap();
+        let expected = router
+            .get_expected_output(&route, Amount::new(100))
+            .unwrap();
         assert!(expected.0 > 0);
     }
 }

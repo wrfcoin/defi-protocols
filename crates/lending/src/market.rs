@@ -94,7 +94,8 @@ impl LendingMarket {
     }
 
     pub fn health_factor(&self, borrower: &Address) -> DefiResult<u64> {
-        self.collateral.get_health_factor(borrower, self.active_oracle())
+        self.collateral
+            .get_health_factor(borrower, self.active_oracle())
     }
 
     pub fn add_collateral(
@@ -104,7 +105,8 @@ impl LendingMarket {
         amount: Amount,
         config: CollateralConfig,
     ) -> DefiResult<()> {
-        self.collateral.add_collateral(borrower, asset, amount, config)
+        self.collateral
+            .add_collateral(borrower, asset, amount, config)
     }
 
     pub fn available_liquidity(&self, asset: &AssetId) -> DefiResult<Amount> {
@@ -160,9 +162,11 @@ impl LendingProtocol for LendingMarket {
             .get(&debt_key)
             .copied()
             .unwrap_or(Amount::ZERO);
-        let new_debt = current_debt.checked_add(amount).ok_or(DefiError::Overflow {
-            operation: "market borrow debt tracking".into(),
-        })?;
+        let new_debt = current_debt
+            .checked_add(amount)
+            .ok_or(DefiError::Overflow {
+                operation: "market borrow debt tracking".into(),
+            })?;
         self.collateral.debts.insert(debt_key.clone(), new_debt);
 
         let collateral_assets = self
@@ -250,7 +254,8 @@ impl LendingProtocol for LendingMarket {
             )?
         };
 
-        self.pool.repay(&debt_asset, outcome.debt_repaid, timestamp)?;
+        self.pool
+            .repay(&debt_asset, outcome.debt_repaid, timestamp)?;
 
         Ok(LiquidationEvent::new(
             LiquidationEvent::borrower_position_id(&borrower),
@@ -282,7 +287,8 @@ mod tests {
     }
 
     fn config(max_ltv_bps: u64, liquidation_threshold_bps: u64) -> CollateralConfig {
-        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps).expect("test collateral config should be valid")
+        CollateralConfig::new(max_ltv_bps, liquidation_threshold_bps)
+            .expect("test collateral config should be valid")
     }
 
     fn setup_market() -> LendingMarket {
@@ -316,7 +322,10 @@ mod tests {
             Amount::new(1_000)
         );
         assert_eq!(
-            market.pool.available_liquidity(&asset("USDC")).expect("available_liquidity should succeed"),
+            market
+                .pool
+                .available_liquidity(&asset("USDC"))
+                .expect("available_liquidity should succeed"),
             Amount::new(99_000)
         );
     }
@@ -382,7 +391,10 @@ mod tests {
             .repay(addr(2), asset("USDC"), Amount::new(1_000), ts(3))
             .expect("market operation should succeed");
 
-        assert!(!market.collateral.debts.contains_key(&(addr(2), asset("USDC"))));
+        assert!(!market
+            .collateral
+            .debts
+            .contains_key(&(addr(2), asset("USDC"))));
         assert_eq!(
             market.pool.reserves[&asset("USDC")].total_borrows,
             Amount::ZERO
@@ -396,7 +408,12 @@ mod tests {
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(1))
             .expect("market operation should succeed");
         market
-            .add_collateral(addr(2), asset("ETH"), Amount::new(500), config(7_500, 8_000))
+            .add_collateral(
+                addr(2),
+                asset("ETH"),
+                Amount::new(500),
+                config(7_500, 8_000),
+            )
             .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(1_000), ts(2))
@@ -433,7 +450,12 @@ mod tests {
             .deposit(addr(1), asset("USDC"), Amount::new(100_000), ts(0))
             .expect("market operation should succeed");
         market
-            .add_collateral(addr(2), asset("ETH"), Amount::new(100), config(7_500, 8_000))
+            .add_collateral(
+                addr(2),
+                asset("ETH"),
+                Amount::new(100),
+                config(7_500, 8_000),
+            )
             .expect("market operation should succeed");
         market
             .borrow(addr(2), asset("USDC"), Amount::new(50_000), ts(0))
@@ -443,7 +465,9 @@ mod tests {
         assert_eq!(borrows_before, Amount::new(50_000));
 
         let one_year = 365 * 24 * 3600;
-        market.accrue_interest(&asset("USDC"), ts(one_year)).expect("accrue_interest should succeed");
+        market
+            .accrue_interest(&asset("USDC"), ts(one_year))
+            .expect("accrue_interest should succeed");
 
         let borrows_after = market.pool.reserves[&asset("USDC")].total_borrows;
         assert_eq!(borrows_after, Amount::new(52_250));
@@ -472,7 +496,12 @@ mod tests {
     #[test]
     fn test_health_factor_no_debt() {
         let market = setup_market();
-        assert_eq!(market.health_factor(&addr(1)).expect("health_factor should succeed"), u64::MAX);
+        assert_eq!(
+            market
+                .health_factor(&addr(1))
+                .expect("health_factor should succeed"),
+            u64::MAX
+        );
     }
 
     #[test]

@@ -1,7 +1,6 @@
 use crate::error::DefiResult;
 use crate::types::{
-    Address, Amount, AssetId, LiquidationEvent, PoolId, Price, Timestamp,
-    UtilitySignalSnapshot,
+    Address, Amount, AssetId, LiquidationEvent, PoolId, Price, Timestamp, UtilitySignalSnapshot,
 };
 
 /// Core trait for lending protocol implementations.
