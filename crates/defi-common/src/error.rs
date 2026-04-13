@@ -11,7 +11,10 @@ pub enum DefiError {
     InsufficientCollateral { health_factor_bps: u64 },
 
     #[error("insufficient liquidity in pool: requested {requested}, available {available}")]
-    InsufficientLiquidity { requested: Amount, available: Amount },
+    InsufficientLiquidity {
+        requested: Amount,
+        available: Amount,
+    },
 
     #[error("invalid amount: {reason}")]
     InvalidAmount { reason: String },

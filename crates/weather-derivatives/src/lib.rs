@@ -14,21 +14,19 @@
 //! settlement amounts, which are integer arithmetic.
 
 pub mod error;
-pub mod index;
 pub mod futures;
-pub mod options;
+pub mod index;
 pub mod margin;
-pub mod settlement;
+pub mod options;
 pub mod oracle;
+pub mod settlement;
 
 pub use error::{DerivativesError, DerivativesResult};
-pub use index::{
-    GeographicRegion, ObservationWindow, TemperatureIndexKind, WeatherIndex,
-};
-pub use futures::{FuturesBook, FutureId, FuturePosition, FutureStatus, WeatherFuture};
+pub use futures::{FutureId, FuturePosition, FutureStatus, FuturesBook, WeatherFuture};
+pub use index::{GeographicRegion, ObservationWindow, TemperatureIndexKind, WeatherIndex};
+pub use margin::{LiquidationHook, MarginAccount, MarginConfig, MarginEngine};
 pub use options::{
-    OptionType, OptionsEngine, WeatherOption, OptionId, OptionStatus, Black76Params,
+    Black76Params, OptionId, OptionStatus, OptionType, OptionsEngine, WeatherOption,
 };
-pub use margin::{MarginAccount, MarginEngine, MarginConfig, LiquidationHook};
-pub use settlement::{OracleReading, SettlementEngine, SettlementOutcome};
 pub use oracle::WeatherOracle;
+pub use settlement::{OracleReading, SettlementEngine, SettlementOutcome};

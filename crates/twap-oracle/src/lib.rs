@@ -70,7 +70,10 @@ pub struct ObservationBuffer {
 impl ObservationBuffer {
     /// Create a new buffer with the given capacity.
     pub fn new(capacity: usize) -> Self {
-        assert!(capacity >= 2, "ObservationBuffer capacity must be at least 2");
+        assert!(
+            capacity >= 2,
+            "ObservationBuffer capacity must be at least 2"
+        );
         Self {
             entries: vec![None; capacity],
             head: 0,
@@ -230,9 +233,9 @@ fn price_to_fixed(p: Price) -> u128 {
     }
     // numerator * FIXED_SCALE / denominator
     // Use u128 saturating arithmetic to avoid panics on overflow.
-    (p.numerator as u128)
+    p.numerator
         .saturating_mul(FIXED_SCALE)
-        .saturating_div(p.denominator as u128)
+        .saturating_div(p.denominator)
 }
 
 /// Convert a fixed-point value back to a `Price` fraction.
@@ -317,7 +320,8 @@ impl TwapOracle {
 
     /// Set a fallback spot price for an asset (used when TWAP history is insufficient).
     pub fn set_fallback_price(&mut self, asset: AssetId, price: Price) {
-        self.fallback_prices.insert(asset.as_str().to_string(), price);
+        self.fallback_prices
+            .insert(asset.as_str().to_string(), price);
     }
 
     /// Compute the TWAP for an asset across a specific pool over the given window.
@@ -336,16 +340,18 @@ impl TwapOracle {
         if self.enforce_min_window && window_secs < MIN_LIQUIDATION_WINDOW_SECS {
             return Err(DefiError::OracleError {
                 message: format!(
-                    "TWAP window {}s is below the minimum {}s required for liquidations",
-                    window_secs, MIN_LIQUIDATION_WINDOW_SECS
+                    "TWAP window {window_secs}s is below the minimum {MIN_LIQUIDATION_WINDOW_SECS}s required for liquidations"
                 ),
             });
         }
 
         let key = (pool_id.to_string(), asset.as_str().to_string());
-        let acc = self.accumulators.get(&key).ok_or_else(|| DefiError::OracleError {
-            message: format!("no TWAP accumulator for pool '{}' asset '{}'", pool_id, asset),
-        })?;
+        let acc = self
+            .accumulators
+            .get(&key)
+            .ok_or_else(|| DefiError::OracleError {
+                message: format!("no TWAP accumulator for pool '{pool_id}' asset '{asset}'"),
+            })?;
 
         compute_twap_from_buffer(&acc.buffer, window_secs, now)
     }
@@ -359,17 +365,11 @@ impl TwapOracle {
     ///
     /// Falls back to a stored fallback price when insufficient history is available
     /// across all pools for this asset.
-    pub fn twap(
-        &self,
-        asset: &AssetId,
-        window_secs: u64,
-        now: Timestamp,
-    ) -> DefiResult<Price> {
+    pub fn twap(&self, asset: &AssetId, window_secs: u64, now: Timestamp) -> DefiResult<Price> {
         if self.enforce_min_window && window_secs < MIN_LIQUIDATION_WINDOW_SECS {
             return Err(DefiError::OracleError {
                 message: format!(
-                    "TWAP window {}s is below the minimum {}s required for liquidations",
-                    window_secs, MIN_LIQUIDATION_WINDOW_SECS
+                    "TWAP window {window_secs}s is below the minimum {MIN_LIQUIDATION_WINDOW_SECS}s required for liquidations"
                 ),
             });
         }
@@ -381,9 +381,8 @@ impl TwapOracle {
             if acc_asset != &asset_key {
                 continue;
             }
-            match compute_twap_from_buffer(&acc.buffer, window_secs, now) {
-                Ok(p) => prices.push(price_to_fixed(p)),
-                Err(_) => {} // Skip pools with insufficient history
+            if let Ok(p) = compute_twap_from_buffer(&acc.buffer, window_secs, now) {
+                prices.push(price_to_fixed(p));
             }
         }
 
@@ -395,8 +394,7 @@ impl TwapOracle {
                 .copied()
                 .ok_or_else(|| DefiError::OracleError {
                     message: format!(
-                        "insufficient TWAP history for asset '{}' and no fallback price set",
-                        asset
+                        "insufficient TWAP history for asset '{asset}' and no fallback price set"
                     ),
                 });
         }
@@ -432,7 +430,7 @@ impl PriceOracle for TwapOracle {
                     .get(asset.as_str())
                     .copied()
                     .ok_or_else(|| DefiError::OracleError {
-                        message: format!("no price available for asset '{}'", asset),
+                        message: format!("no price available for asset '{asset}'"),
                     })
             })
     }
@@ -465,12 +463,13 @@ fn compute_twap_from_buffer(
     let window_start = Timestamp::new(now.as_secs().saturating_sub(window_secs));
 
     // Find the oldest observation that falls within the requested window.
-    let earliest = buffer
-        .oldest_at_or_after(window_start)
-        .unwrap_or_else(|| {
-            // All observations are older than the window: use the oldest available.
-            buffer.iter_chronological().next().expect("buffer is non-empty")
-        });
+    let earliest = buffer.oldest_at_or_after(window_start).unwrap_or_else(|| {
+        // All observations are older than the window: use the oldest available.
+        buffer
+            .iter_chronological()
+            .next()
+            .expect("buffer is non-empty")
+    });
 
     let elapsed = latest.timestamp.elapsed_since(earliest.timestamp);
     if elapsed == 0 {
@@ -488,7 +487,7 @@ fn compute_twap_from_buffer(
 }
 
 /// Return the median element from a non-empty mutable slice (partially sorts in-place).
-fn median_of(values: &mut Vec<u128>) -> u128 {
+fn median_of(values: &mut [u128]) -> u128 {
     values.sort_unstable();
     let n = values.len();
     if n % 2 == 1 {
@@ -642,9 +641,7 @@ mod tests {
         let expected = 100.0_f64;
         assert!(
             (twap_as_ratio - expected).abs() < 1.0,
-            "expected TWAP ≈ {}, got {}",
-            expected,
-            twap_as_ratio
+            "expected TWAP ≈ {expected}, got {twap_as_ratio}"
         );
     }
 
@@ -670,8 +667,7 @@ mod tests {
         // This verifies the TWAP is between 100 and 200.
         assert!(
             twap_as_ratio > 90.0 && twap_as_ratio < 210.0,
-            "TWAP {} should be between 100 and 200",
-            twap_as_ratio
+            "TWAP {twap_as_ratio} should be between 100 and 200"
         );
     }
 
@@ -691,7 +687,7 @@ mod tests {
         }
 
         let t_attack = 30 * 60; // attack at 30-min mark (same second, no elapsed)
-        // Manipulate: record a 100× spike at the same timestamp as the last entry.
+                                // Manipulate: record a 100× spike at the same timestamp as the last entry.
         oracle.record_observation("pool1", &wrf(), price(10_000, 1), ts(t_attack));
 
         // Immediately restore (next second).
@@ -705,8 +701,7 @@ mod tests {
         // which is negligible. Ensure TWAP is still close to 100.
         assert!(
             twap_as_ratio < 200.0,
-            "single-block manipulation moved TWAP to {}, expected < 200",
-            twap_as_ratio
+            "single-block manipulation moved TWAP to {twap_as_ratio}, expected < 200"
         );
     }
 
@@ -732,7 +727,10 @@ mod tests {
         // (It may fail for insufficient data, but not for the window check.)
         let result = oracle.twap(&wrf(), 1, ts(10_000));
         // Should fall through to fallback (no observations yet).
-        assert!(result.is_ok(), "expected fallback to supply price, got {:?}", result);
+        assert!(
+            result.is_ok(),
+            "expected fallback to supply price, got {result:?}"
+        );
     }
 
     // ── Fallback tests ────────────────────────────────────────────────────────
@@ -784,8 +782,7 @@ mod tests {
         // Median of [90, 100, 110] should be close to 100.
         assert!(
             (twap_as_ratio - 100.0).abs() < 2.0,
-            "median TWAP {} should be ≈ 100",
-            twap_as_ratio
+            "median TWAP {twap_as_ratio} should be ≈ 100"
         );
     }
 
@@ -804,8 +801,7 @@ mod tests {
         // Median of [80, 120] = average of two midpoints ≈ 100.
         assert!(
             (twap_as_ratio - 100.0).abs() < 5.0,
-            "median TWAP {} should be ≈ 100",
-            twap_as_ratio
+            "median TWAP {twap_as_ratio} should be ≈ 100"
         );
     }
 
@@ -815,7 +811,11 @@ mod tests {
         oracle.enforce_min_window = false;
 
         // Two legitimate pools at price 100; one manipulated pool at 10_000.
-        for (pool, p) in [("legit1", 100u128), ("legit2", 100u128), ("bad", 10_000u128)] {
+        for (pool, p) in [
+            ("legit1", 100u128),
+            ("legit2", 100u128),
+            ("bad", 10_000u128),
+        ] {
             oracle.init_pool_asset(pool, wrf(), price(p, 1), ts(0));
             oracle.record_observation(pool, &wrf(), price(p, 1), ts(3600));
         }
@@ -825,8 +825,7 @@ mod tests {
         // Median of [100, 100, 10_000] = 100.
         assert!(
             twap_as_ratio < 200.0,
-            "manipulated pool should not sway median: got {}",
-            twap_as_ratio
+            "manipulated pool should not sway median: got {twap_as_ratio}"
         );
     }
 

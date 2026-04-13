@@ -69,11 +69,12 @@ impl PayoutEngine {
             .ok_or_else(|| PredictionError::Overflow {
                 operation: "fee deduction".into(),
             })?;
-        let distributable = total_stake
-            .checked_sub(fee_amount)
-            .ok_or_else(|| PredictionError::Overflow {
-                operation: "distributable after fee".into(),
-            })?;
+        let distributable =
+            total_stake
+                .checked_sub(fee_amount)
+                .ok_or_else(|| PredictionError::Overflow {
+                    operation: "distributable after fee".into(),
+                })?;
 
         let payouts = match market.kind {
             MarketKind::Binary => {
@@ -215,7 +216,13 @@ mod tests {
         m
     }
 
-    fn add_position(ledger: &mut PositionLedger, user: Address, market_id: u64, outcome: usize, shares: f64) {
+    fn add_position(
+        ledger: &mut PositionLedger,
+        user: Address,
+        market_id: u64,
+        outcome: usize,
+        shares: f64,
+    ) {
         let pos = ledger.get_or_create_mut(user, market_id, outcome);
         pos.add_shares(shares, Amount::ZERO);
     }
@@ -296,7 +303,11 @@ mod tests {
         assert_eq!(result.protocol_fee, Amount::new(30));
 
         for p in &result.payouts {
-            assert_eq!(p.amount, Amount::new(3988), "each winner should get 3988 units");
+            assert_eq!(
+                p.amount,
+                Amount::new(3988),
+                "each winner should get 3988 units"
+            );
         }
     }
 

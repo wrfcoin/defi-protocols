@@ -6,7 +6,6 @@
 /// The core swap logic (`compute_swap_step`) lives in `tick.rs` alongside the
 /// tick math that drives it. This module is a thin wrapper that documents the
 /// swap execution model and provides any additional helpers needed by callers.
-
 pub use crate::concentrated::tick::compute_swap_step;
 
 /// Describes the result of a single swap step across one tick range.
@@ -129,7 +128,7 @@ mod tests {
         // Double the input → roughly double the fee (within rounding)
         if step1.fee_amount > 0 {
             let ratio = step2.fee_amount / step1.fee_amount;
-            assert!(ratio >= 1 && ratio <= 3, "fee should scale with input");
+            assert!((1..=3).contains(&ratio), "fee should scale with input");
         }
     }
 }

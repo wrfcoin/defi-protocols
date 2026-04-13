@@ -19,10 +19,7 @@ pub enum DerivativesError {
     },
 
     #[error("insufficient margin: required {required}, available {available}")]
-    InsufficientMargin {
-        required: Amount,
-        available: Amount,
-    },
+    InsufficientMargin { required: Amount, available: Amount },
 
     #[error("position already under margin")]
     AlreadyUnderMargin,

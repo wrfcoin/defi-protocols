@@ -37,7 +37,9 @@ impl ReserveData {
             return 0;
         }
         // (borrows * 10_000) / deposits
-        let num = (self.total_borrows.0 as u128)
+        let num = self
+            .total_borrows
+            .0
             .checked_mul(10_000)
             .unwrap_or(u128::MAX);
         (num / self.total_deposits.0) as u64
@@ -78,16 +80,20 @@ impl LendingPool {
             });
         }
 
-        let reserve = self.reserves.get_mut(asset).ok_or_else(|| DefiError::InvalidAsset {
-            asset_id: asset.clone(),
-        })?;
-
-        reserve.total_deposits = reserve
-            .total_deposits
-            .checked_add(amount)
-            .ok_or_else(|| DefiError::Overflow {
-                operation: "deposit".into(),
+        let reserve = self
+            .reserves
+            .get_mut(asset)
+            .ok_or_else(|| DefiError::InvalidAsset {
+                asset_id: asset.clone(),
             })?;
+
+        reserve.total_deposits =
+            reserve
+                .total_deposits
+                .checked_add(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "deposit".into(),
+                })?;
         reserve.last_update = timestamp;
 
         Ok(())
@@ -106,9 +112,12 @@ impl LendingPool {
             });
         }
 
-        let reserve = self.reserves.get_mut(asset).ok_or_else(|| DefiError::InvalidAsset {
-            asset_id: asset.clone(),
-        })?;
+        let reserve = self
+            .reserves
+            .get_mut(asset)
+            .ok_or_else(|| DefiError::InvalidAsset {
+                asset_id: asset.clone(),
+            })?;
 
         let available = available_liquidity_of(reserve);
         if amount > available {
@@ -118,12 +127,13 @@ impl LendingPool {
             });
         }
 
-        reserve.total_deposits = reserve
-            .total_deposits
-            .checked_sub(amount)
-            .ok_or_else(|| DefiError::Overflow {
-                operation: "withdraw".into(),
-            })?;
+        reserve.total_deposits =
+            reserve
+                .total_deposits
+                .checked_sub(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "withdraw".into(),
+                })?;
         reserve.last_update = timestamp;
 
         Ok(())
@@ -142,9 +152,12 @@ impl LendingPool {
             });
         }
 
-        let reserve = self.reserves.get_mut(asset).ok_or_else(|| DefiError::InvalidAsset {
-            asset_id: asset.clone(),
-        })?;
+        let reserve = self
+            .reserves
+            .get_mut(asset)
+            .ok_or_else(|| DefiError::InvalidAsset {
+                asset_id: asset.clone(),
+            })?;
 
         let available = available_liquidity_of(reserve);
         if amount > available {
@@ -154,12 +167,13 @@ impl LendingPool {
             });
         }
 
-        reserve.total_borrows = reserve
-            .total_borrows
-            .checked_add(amount)
-            .ok_or_else(|| DefiError::Overflow {
-                operation: "borrow".into(),
-            })?;
+        reserve.total_borrows =
+            reserve
+                .total_borrows
+                .checked_add(amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "borrow".into(),
+                })?;
         reserve.last_update = timestamp;
 
         Ok(())
@@ -180,9 +194,12 @@ impl LendingPool {
             });
         }
 
-        let reserve = self.reserves.get_mut(asset).ok_or_else(|| DefiError::InvalidAsset {
-            asset_id: asset.clone(),
-        })?;
+        let reserve = self
+            .reserves
+            .get_mut(asset)
+            .ok_or_else(|| DefiError::InvalidAsset {
+                asset_id: asset.clone(),
+            })?;
 
         // Cap repayment at outstanding borrows.
         let repay_amount = if amount > reserve.total_borrows {
@@ -197,12 +214,13 @@ impl LendingPool {
             });
         }
 
-        reserve.total_borrows = reserve
-            .total_borrows
-            .checked_sub(repay_amount)
-            .ok_or_else(|| DefiError::Overflow {
-                operation: "repay".into(),
-            })?;
+        reserve.total_borrows =
+            reserve
+                .total_borrows
+                .checked_sub(repay_amount)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "repay".into(),
+                })?;
         reserve.last_update = timestamp;
 
         Ok(repay_amount)
@@ -218,9 +236,12 @@ impl LendingPool {
         model: &dyn InterestRateModel,
         timestamp: Timestamp,
     ) -> DefiResult<()> {
-        let reserve = self.reserves.get_mut(asset).ok_or_else(|| DefiError::InvalidAsset {
-            asset_id: asset.clone(),
-        })?;
+        let reserve = self
+            .reserves
+            .get_mut(asset)
+            .ok_or_else(|| DefiError::InvalidAsset {
+                asset_id: asset.clone(),
+            })?;
 
         if timestamp <= reserve.last_update {
             return Ok(());
@@ -264,16 +285,24 @@ impl LendingPool {
 
     /// Available liquidity for a given asset (deposits minus borrows).
     pub fn available_liquidity(&self, asset: &AssetId) -> DefiResult<Amount> {
-        let reserve = self.reserves.get(asset).ok_or_else(|| DefiError::InvalidAsset {
-            asset_id: asset.clone(),
-        })?;
+        let reserve = self
+            .reserves
+            .get(asset)
+            .ok_or_else(|| DefiError::InvalidAsset {
+                asset_id: asset.clone(),
+            })?;
         Ok(available_liquidity_of(reserve))
     }
 }
 
 /// Compute available liquidity from a reserve without borrowing the pool.
 fn available_liquidity_of(reserve: &ReserveData) -> Amount {
-    Amount(reserve.total_deposits.0.saturating_sub(reserve.total_borrows.0))
+    Amount(
+        reserve
+            .total_deposits
+            .0
+            .saturating_sub(reserve.total_borrows.0),
+    )
 }
 
 impl Default for LendingPool {
@@ -330,8 +359,12 @@ mod tests {
     fn test_deposit() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).expect("deposit should succeed");
-        assert_eq!(pool.reserves[&asset("WRF")].total_deposits, Amount::new(1000));
+        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1))
+            .expect("deposit should succeed");
+        assert_eq!(
+            pool.reserves[&asset("WRF")].total_deposits,
+            Amount::new(1000)
+        );
     }
 
     #[test]
@@ -353,16 +386,22 @@ mod tests {
     fn test_withdraw() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).expect("deposit should succeed");
-        pool.withdraw(&asset("WRF"), Amount::new(500), ts(2)).expect("withdraw should succeed");
-        assert_eq!(pool.reserves[&asset("WRF")].total_deposits, Amount::new(500));
+        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1))
+            .expect("deposit should succeed");
+        pool.withdraw(&asset("WRF"), Amount::new(500), ts(2))
+            .expect("withdraw should succeed");
+        assert_eq!(
+            pool.reserves[&asset("WRF")].total_deposits,
+            Amount::new(500)
+        );
     }
 
     #[test]
     fn test_withdraw_exceeds_available() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(100), ts(1)).expect("deposit should succeed");
+        pool.deposit(&asset("WRF"), Amount::new(100), ts(1))
+            .expect("deposit should succeed");
         let result = pool.withdraw(&asset("WRF"), Amount::new(200), ts(2));
         assert!(result.is_err());
     }
@@ -371,7 +410,8 @@ mod tests {
     fn test_withdraw_zero_fails() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(100), ts(1)).expect("deposit should succeed");
+        pool.deposit(&asset("WRF"), Amount::new(100), ts(1))
+            .expect("deposit should succeed");
         let result = pool.withdraw(&asset("WRF"), Amount::ZERO, ts(2));
         assert!(result.is_err());
     }
@@ -380,9 +420,17 @@ mod tests {
     fn test_available_liquidity() {
         let mut pool = LendingPool::new();
         pool.init_reserve(asset("WRF"), ts(0));
-        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1)).expect("deposit should succeed");
+        pool.deposit(&asset("WRF"), Amount::new(1000), ts(1))
+            .expect("deposit should succeed");
         // Simulate borrow by modifying total_borrows directly
-        pool.reserves.get_mut(&asset("WRF")).expect("WRF reserve should exist").total_borrows = Amount::new(300);
-        assert_eq!(pool.available_liquidity(&asset("WRF")).expect("available_liquidity should succeed"), Amount::new(700));
+        pool.reserves
+            .get_mut(&asset("WRF"))
+            .expect("WRF reserve should exist")
+            .total_borrows = Amount::new(300);
+        assert_eq!(
+            pool.available_liquidity(&asset("WRF"))
+                .expect("available_liquidity should succeed"),
+            Amount::new(700)
+        );
     }
 }

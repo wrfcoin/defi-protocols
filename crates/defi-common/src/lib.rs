@@ -5,8 +5,7 @@ pub mod traits;
 pub mod types;
 
 pub use compute_credit::{
-    ComputeCreditLedger, ComputeCreditLot, ComputeCreditStatus, ComputeReceipt,
-    ComputeReceiptId,
+    ComputeCreditLedger, ComputeCreditLot, ComputeCreditStatus, ComputeReceipt, ComputeReceiptId,
 };
 pub use error::DefiError;
 pub use privacy::{
@@ -17,6 +16,5 @@ pub use privacy::{
     ShieldedRewardBatchRef,
 };
 pub use types::{
-    Address, Amount, AssetId, LiquidationEvent, PoolId, Price, Timestamp,
-    UtilitySignalSnapshot,
+    Address, Amount, AssetId, LiquidationEvent, PoolId, Price, Timestamp, UtilitySignalSnapshot,
 };

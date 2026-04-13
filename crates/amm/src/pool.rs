@@ -22,12 +22,7 @@ pub struct LiquidityPool {
 }
 
 impl LiquidityPool {
-    pub fn new(
-        pool_id: PoolId,
-        asset_a: AssetId,
-        asset_b: AssetId,
-        fee_rate_bps: u64,
-    ) -> Self {
+    pub fn new(pool_id: PoolId, asset_a: AssetId, asset_b: AssetId, fee_rate_bps: u64) -> Self {
         Self {
             pool_id,
             asset_a,
@@ -43,11 +38,7 @@ impl LiquidityPool {
     ///
     /// On first deposit, LP tokens = sqrt(amount_a * amount_b).
     /// On subsequent deposits, LP tokens are proportional to the smaller ratio.
-    pub fn add_liquidity(
-        &mut self,
-        amount_a: Amount,
-        amount_b: Amount,
-    ) -> DefiResult<Amount> {
+    pub fn add_liquidity(&mut self, amount_a: Amount, amount_b: Amount) -> DefiResult<Amount> {
         if amount_a.is_zero() || amount_b.is_zero() {
             return Err(DefiError::InvalidAmount {
                 reason: "both amounts must be non-zero".into(),
@@ -90,27 +81,30 @@ impl LiquidityPool {
             });
         }
 
-        self.reserve_a = self.reserve_a.checked_add(amount_a).ok_or(DefiError::Overflow {
-            operation: "add_liquidity reserve_a".into(),
-        })?;
-        self.reserve_b = self.reserve_b.checked_add(amount_b).ok_or(DefiError::Overflow {
-            operation: "add_liquidity reserve_b".into(),
-        })?;
-        self.total_lp_supply = self
-            .total_lp_supply
-            .checked_add(lp_minted)
+        self.reserve_a = self
+            .reserve_a
+            .checked_add(amount_a)
             .ok_or(DefiError::Overflow {
-                operation: "add_liquidity lp_supply".into(),
+                operation: "add_liquidity reserve_a".into(),
             })?;
+        self.reserve_b = self
+            .reserve_b
+            .checked_add(amount_b)
+            .ok_or(DefiError::Overflow {
+                operation: "add_liquidity reserve_b".into(),
+            })?;
+        self.total_lp_supply =
+            self.total_lp_supply
+                .checked_add(lp_minted)
+                .ok_or(DefiError::Overflow {
+                    operation: "add_liquidity lp_supply".into(),
+                })?;
 
         Ok(lp_minted)
     }
 
     /// Remove liquidity by burning LP tokens. Returns (amount_a, amount_b).
-    pub fn remove_liquidity(
-        &mut self,
-        lp_amount: Amount,
-    ) -> DefiResult<(Amount, Amount)> {
+    pub fn remove_liquidity(&mut self, lp_amount: Amount) -> DefiResult<(Amount, Amount)> {
         if lp_amount.is_zero() {
             return Err(DefiError::InvalidAmount {
                 reason: "LP burn amount must be non-zero".into(),
@@ -143,18 +137,24 @@ impl LiquidityPool {
                 operation: "remove_liquidity amount_b".into(),
             })?;
 
-        self.reserve_a = self.reserve_a.checked_sub(amount_a).ok_or(DefiError::Overflow {
-            operation: "remove_liquidity reserve_a".into(),
-        })?;
-        self.reserve_b = self.reserve_b.checked_sub(amount_b).ok_or(DefiError::Overflow {
-            operation: "remove_liquidity reserve_b".into(),
-        })?;
-        self.total_lp_supply = self
-            .total_lp_supply
-            .checked_sub(lp_amount)
+        self.reserve_a = self
+            .reserve_a
+            .checked_sub(amount_a)
             .ok_or(DefiError::Overflow {
-                operation: "remove_liquidity lp_supply".into(),
+                operation: "remove_liquidity reserve_a".into(),
             })?;
+        self.reserve_b = self
+            .reserve_b
+            .checked_sub(amount_b)
+            .ok_or(DefiError::Overflow {
+                operation: "remove_liquidity reserve_b".into(),
+            })?;
+        self.total_lp_supply =
+            self.total_lp_supply
+                .checked_sub(lp_amount)
+                .ok_or(DefiError::Overflow {
+                    operation: "remove_liquidity lp_supply".into(),
+                })?;
 
         Ok((amount_a, amount_b))
     }
@@ -176,7 +176,7 @@ fn integer_sqrt(n: u128) -> u128 {
         return 0;
     }
     let mut x = n;
-    let mut y = (x + 1) / 2;
+    let mut y = x.div_ceil(2);
     while y < x {
         x = y;
         y = (x + n / x) / 2;
@@ -206,7 +206,9 @@ mod tests {
     #[test]
     fn test_initial_liquidity() {
         let mut p = pool();
-        let lp = p.add_liquidity(Amount::new(1000), Amount::new(4000)).unwrap();
+        let lp = p
+            .add_liquidity(Amount::new(1000), Amount::new(4000))
+            .unwrap();
         // sqrt(1000 * 4000) = sqrt(4_000_000) = 2000
         assert_eq!(lp, Amount::new(2000));
         assert_eq!(p.reserve_a, Amount::new(1000));
@@ -217,7 +219,8 @@ mod tests {
     #[test]
     fn test_subsequent_liquidity() {
         let mut p = pool();
-        p.add_liquidity(Amount::new(1000), Amount::new(1000)).unwrap();
+        p.add_liquidity(Amount::new(1000), Amount::new(1000))
+            .unwrap();
         // Second deposit, proportional
         let lp = p.add_liquidity(Amount::new(500), Amount::new(500)).unwrap();
         // lp_from_a = 500 * 1000 / 1000 = 500, lp_from_b = 500 * 1000 / 1000 = 500
@@ -234,7 +237,8 @@ mod tests {
     #[test]
     fn test_remove_liquidity() {
         let mut p = pool();
-        p.add_liquidity(Amount::new(1000), Amount::new(2000)).unwrap();
+        p.add_liquidity(Amount::new(1000), Amount::new(2000))
+            .unwrap();
         let total_lp = p.total_lp_supply;
         let (a, b) = p.remove_liquidity(total_lp).unwrap();
         assert_eq!(a, Amount::new(1000));
@@ -245,7 +249,9 @@ mod tests {
     #[test]
     fn test_remove_liquidity_partial() {
         let mut p = pool();
-        let lp = p.add_liquidity(Amount::new(1000), Amount::new(1000)).unwrap();
+        let lp = p
+            .add_liquidity(Amount::new(1000), Amount::new(1000))
+            .unwrap();
         let half = Amount::new(lp.0 / 2);
         let (a, b) = p.remove_liquidity(half).unwrap();
         assert_eq!(a, Amount::new(500));
@@ -263,7 +269,8 @@ mod tests {
     #[test]
     fn test_invariant() {
         let mut p = pool();
-        p.add_liquidity(Amount::new(1000), Amount::new(2000)).unwrap();
+        p.add_liquidity(Amount::new(1000), Amount::new(2000))
+            .unwrap();
         assert_eq!(p.invariant(), Some(1000 * 2000));
     }
 

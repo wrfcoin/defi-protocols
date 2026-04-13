@@ -10,9 +10,7 @@ use crate::fees::FeeTier;
 use super::{
     position::{ConcentratedPosition, PositionId},
     sqrt_price::{tick_to_sqrt_price, SqrtPrice},
-    tick::{
-        compute_swap_step, fee_growth_inside, liquidity_to_amounts, Tick, TickBitmap,
-    },
+    tick::{compute_swap_step, fee_growth_inside, liquidity_to_amounts, Tick, TickBitmap},
 };
 
 /// A concentrated liquidity pool in the style of Uniswap V3.
@@ -78,13 +76,23 @@ impl ConcentratedLiquidityPool {
 
     /// Get or create a mutable reference to a tick.
     fn get_or_create_tick(&mut self, index: i32) -> &mut Tick {
-        self.tick_map.entry(index).or_insert_with(|| Tick::new(index))
+        self.tick_map
+            .entry(index)
+            .or_insert_with(|| Tick::new(index))
     }
 
     /// Get the current fee growth inside a tick range.
     fn current_fee_growth_inside(&self, lower_tick: i32, upper_tick: i32) -> (u128, u128) {
-        let lower = self.tick_map.get(&lower_tick).cloned().unwrap_or_else(|| Tick::new(lower_tick));
-        let upper = self.tick_map.get(&upper_tick).cloned().unwrap_or_else(|| Tick::new(upper_tick));
+        let lower = self
+            .tick_map
+            .get(&lower_tick)
+            .cloned()
+            .unwrap_or_else(|| Tick::new(lower_tick));
+        let upper = self
+            .tick_map
+            .get(&upper_tick)
+            .cloned()
+            .unwrap_or_else(|| Tick::new(upper_tick));
         fee_growth_inside(
             &lower,
             &upper,
@@ -134,8 +142,12 @@ impl ConcentratedLiquidityPool {
         // Update lower tick: liquidity_net increases (we add liquidity above this tick).
         {
             let lower = self.get_or_create_tick(lower_tick);
-            lower.liquidity_net = lower.liquidity_net.checked_add(liquidity_delta as i128)
-                .ok_or_else(|| DefiError::Overflow { operation: "tick liquidity_net lower".into() })?;
+            lower.liquidity_net = lower
+                .liquidity_net
+                .checked_add(liquidity_delta as i128)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "tick liquidity_net lower".into(),
+                })?;
         }
         self.tick_bitmap.flip(lower_tick);
         // Flip back if it was already initialized — we only add; track net parity.
@@ -152,8 +164,12 @@ impl ConcentratedLiquidityPool {
         // Update upper tick: liquidity_net decreases (we remove liquidity above this tick).
         {
             let upper = self.get_or_create_tick(upper_tick);
-            upper.liquidity_net = upper.liquidity_net.checked_sub(liquidity_delta as i128)
-                .ok_or_else(|| DefiError::Overflow { operation: "tick liquidity_net upper".into() })?;
+            upper.liquidity_net = upper
+                .liquidity_net
+                .checked_sub(liquidity_delta as i128)
+                .ok_or_else(|| DefiError::Overflow {
+                    operation: "tick liquidity_net upper".into(),
+                })?;
         }
         if !self.tick_bitmap.is_initialized(upper_tick) {
             self.tick_bitmap.flip(upper_tick);
@@ -161,8 +177,12 @@ impl ConcentratedLiquidityPool {
 
         // If the current price is within this range, add to active liquidity.
         if self.current_tick >= lower_tick && self.current_tick < upper_tick {
-            self.liquidity = self.liquidity.checked_add(liquidity_delta)
-                .ok_or_else(|| DefiError::Overflow { operation: "pool liquidity".into() })?;
+            self.liquidity =
+                self.liquidity
+                    .checked_add(liquidity_delta)
+                    .ok_or_else(|| DefiError::Overflow {
+                        operation: "pool liquidity".into(),
+                    })?;
         }
 
         // Create or update the position.
@@ -172,7 +192,8 @@ impl ConcentratedLiquidityPool {
         let mut position = ConcentratedPosition::new(owner, lower_tick, upper_tick);
         position.fee_growth_inside_last_0 = fg_inside_0;
         position.fee_growth_inside_last_1 = fg_inside_1;
-        position.update(liquidity_delta as i128, fg_inside_0, fg_inside_1)
+        position
+            .update(liquidity_delta as i128, fg_inside_0, fg_inside_1)
             .map_err(|e| DefiError::InvalidAmount { reason: e.into() })?;
 
         self.positions.insert(pos_id, position);
@@ -188,9 +209,12 @@ impl ConcentratedLiquidityPool {
         position_id: PositionId,
         liquidity_delta: u128,
     ) -> DefiResult<(u128, u128, u128, u128)> {
-        let pos = self.positions.get(&position_id).ok_or_else(|| DefiError::InvalidAmount {
-            reason: "position not found".into(),
-        })?;
+        let pos = self
+            .positions
+            .get(&position_id)
+            .ok_or_else(|| DefiError::InvalidAmount {
+                reason: "position not found".into(),
+            })?;
 
         if liquidity_delta > pos.liquidity {
             return Err(DefiError::InsufficientBalance {
@@ -244,11 +268,7 @@ impl ConcentratedLiquidityPool {
     /// `amount_in`: exact input amount.
     ///
     /// Returns `amount_out` (the tokens received by the caller).
-    pub fn swap(
-        &mut self,
-        amount_in: u128,
-        zero_for_one: bool,
-    ) -> DefiResult<u128> {
+    pub fn swap(&mut self, amount_in: u128, zero_for_one: bool) -> DefiResult<u128> {
         if amount_in == 0 {
             return Err(DefiError::InvalidAmount {
                 reason: "swap amount must be non-zero".into(),
@@ -302,11 +322,9 @@ impl ConcentratedLiquidityPool {
             if self.liquidity > 0 {
                 let fee_per_unit = (fee_amount << 64) / self.liquidity;
                 if zero_for_one {
-                    self.fee_growth_global_0 = self.fee_growth_global_0
-                        .wrapping_add(fee_per_unit);
+                    self.fee_growth_global_0 = self.fee_growth_global_0.wrapping_add(fee_per_unit);
                 } else {
-                    self.fee_growth_global_1 = self.fee_growth_global_1
-                        .wrapping_add(fee_per_unit);
+                    self.fee_growth_global_1 = self.fee_growth_global_1.wrapping_add(fee_per_unit);
                 }
             }
 
@@ -315,7 +333,7 @@ impl ConcentratedLiquidityPool {
 
             // If we reached the target tick, cross it and update liquidity.
             if sqrt_price_next == sqrt_price_target {
-                let tick_to_cross = if zero_for_one { next_tick } else { next_tick };
+                let tick_to_cross = next_tick;
                 if let Some(tick) = self.tick_map.get_mut(&tick_to_cross) {
                     let lnet = tick.liquidity_net;
                     tick.cross(self.fee_growth_global_0, self.fee_growth_global_1);
@@ -527,7 +545,10 @@ mod tests {
         p.swap(100_000, true).unwrap(); // token0 in → fees in token0
         let fg0_after = p.fee_growth_global_0;
 
-        assert!(fg0_after > fg0_before, "fee_growth_global_0 should increase after swap");
+        assert!(
+            fg0_after > fg0_before,
+            "fee_growth_global_0 should increase after swap"
+        );
     }
 
     #[test]
@@ -542,7 +563,10 @@ mod tests {
         let (_, _, fees_0, fees_1) = p.burn(pos_id, 0).unwrap();
         // LP was in the active range, so fees_0 should be > 0
         // (fees_1 = 0 since we swapped token0, generating token0 fees only)
-        assert!(fees_0 > 0, "LP in active range should earn token0 fees after token0→token1 swap");
+        assert!(
+            fees_0 > 0,
+            "LP in active range should earn token0 fees after token0→token1 swap"
+        );
         let _ = fees_1;
     }
 

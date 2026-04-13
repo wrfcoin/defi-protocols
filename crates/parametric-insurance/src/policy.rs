@@ -66,23 +66,33 @@ impl WeatherTrigger {
     pub fn evaluate(&self, reading: &WeatherReading) -> InsuranceResult<bool> {
         match self {
             WeatherTrigger::TemperatureAbove(threshold) => {
-                let temp = reading.temperature_celsius.ok_or(InsuranceError::MissingOracleReading)?;
+                let temp = reading
+                    .temperature_celsius
+                    .ok_or(InsuranceError::MissingOracleReading)?;
                 Ok(temp > *threshold)
             }
             WeatherTrigger::TemperatureBelow(threshold) => {
-                let temp = reading.temperature_celsius.ok_or(InsuranceError::MissingOracleReading)?;
+                let temp = reading
+                    .temperature_celsius
+                    .ok_or(InsuranceError::MissingOracleReading)?;
                 Ok(temp < *threshold)
             }
             WeatherTrigger::PrecipitationAbove(threshold) => {
-                let precip = reading.precipitation_mm.ok_or(InsuranceError::MissingOracleReading)?;
+                let precip = reading
+                    .precipitation_mm
+                    .ok_or(InsuranceError::MissingOracleReading)?;
                 Ok(precip > *threshold)
             }
             WeatherTrigger::WindSpeedAbove(threshold) => {
-                let wind = reading.wind_speed_mps.ok_or(InsuranceError::MissingOracleReading)?;
+                let wind = reading
+                    .wind_speed_mps
+                    .ok_or(InsuranceError::MissingOracleReading)?;
                 Ok(wind > *threshold)
             }
             WeatherTrigger::DroughtIndex(threshold) => {
-                let drought = reading.drought_index.ok_or(InsuranceError::MissingOracleReading)?;
+                let drought = reading
+                    .drought_index
+                    .ok_or(InsuranceError::MissingOracleReading)?;
                 Ok(drought < *threshold)
             }
             WeatherTrigger::CompositeTrigger { triggers, logic } => {
@@ -190,6 +200,7 @@ pub struct ParametricPolicy {
 
 impl ParametricPolicy {
     /// Create a new active policy.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         policy_id: PolicyId,
         buyer: Address,
@@ -250,21 +261,27 @@ impl PolicyStore {
 
     /// Look up a policy by ID.
     pub fn get(&self, id: &PolicyId) -> InsuranceResult<&ParametricPolicy> {
-        self.policies.get(id).ok_or_else(|| InsuranceError::PolicyNotFound {
-            policy_id: id.as_str().to_string(),
-        })
+        self.policies
+            .get(id)
+            .ok_or_else(|| InsuranceError::PolicyNotFound {
+                policy_id: id.as_str().to_string(),
+            })
     }
 
     /// Look up a policy mutably.
     pub fn get_mut(&mut self, id: &PolicyId) -> InsuranceResult<&mut ParametricPolicy> {
-        self.policies.get_mut(id).ok_or_else(|| InsuranceError::PolicyNotFound {
-            policy_id: id.as_str().to_string(),
-        })
+        self.policies
+            .get_mut(id)
+            .ok_or_else(|| InsuranceError::PolicyNotFound {
+                policy_id: id.as_str().to_string(),
+            })
     }
 
     /// Iterate over all active policies.
     pub fn active_policies(&self) -> impl Iterator<Item = &ParametricPolicy> {
-        self.policies.values().filter(|p| p.state == PolicyState::Active)
+        self.policies
+            .values()
+            .filter(|p| p.state == PolicyState::Active)
     }
 
     /// Total count of all policies (active + settled).

@@ -64,11 +64,12 @@ impl ResolutionEngine {
         let winning_outcome = match market.kind {
             MarketKind::Binary => {
                 // Outcome 0 = Yes bin, which carries the threshold.
-                let threshold = market.outcome_bins[0]
-                    .threshold
-                    .ok_or_else(|| PredictionError::LmsrError {
-                        reason: "binary market Yes bin missing threshold".into(),
-                    })?;
+                let threshold =
+                    market.outcome_bins[0]
+                        .threshold
+                        .ok_or_else(|| PredictionError::LmsrError {
+                            reason: "binary market Yes bin missing threshold".into(),
+                        })?;
                 // "Yes" wins when the error metric is below the threshold.
                 if accuracy_score < threshold {
                     0 // Yes
@@ -125,7 +126,10 @@ mod tests {
         let mut market = make_binary_market(100, 2.0);
         let receipt = make_receipt(1.5); // RMSE 1.5 < threshold 2.0 → Yes
         let result = ResolutionEngine::resolve(&mut market, &receipt, 100).unwrap();
-        assert_eq!(result.winning_outcome, 0, "RMSE < threshold should resolve Yes");
+        assert_eq!(
+            result.winning_outcome, 0,
+            "RMSE < threshold should resolve Yes"
+        );
     }
 
     #[test]
@@ -133,7 +137,10 @@ mod tests {
         let mut market = make_binary_market(100, 2.0);
         let receipt = make_receipt(2.5); // RMSE 2.5 >= threshold 2.0 → No
         let result = ResolutionEngine::resolve(&mut market, &receipt, 100).unwrap();
-        assert_eq!(result.winning_outcome, 1, "RMSE >= threshold should resolve No");
+        assert_eq!(
+            result.winning_outcome, 1,
+            "RMSE >= threshold should resolve No"
+        );
     }
 
     #[test]

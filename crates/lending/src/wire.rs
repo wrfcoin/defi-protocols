@@ -13,16 +13,18 @@ pub struct LendingAccountId(pub String);
 
 impl LendingAccountId {
     pub fn from_address(address: Address) -> Self {
-        Self(format!("{ACCOUNT_PREFIX}{}", bytes_to_hex(address.as_bytes())))
+        Self(format!(
+            "{ACCOUNT_PREFIX}{}",
+            bytes_to_hex(address.as_bytes())
+        ))
     }
 
     pub fn to_address(&self) -> Result<Address, WireSchemaError> {
-        let raw = self
-            .0
-            .strip_prefix(ACCOUNT_PREFIX)
-            .ok_or_else(|| WireSchemaError::InvalidAccountId {
+        let raw = self.0.strip_prefix(ACCOUNT_PREFIX).ok_or_else(|| {
+            WireSchemaError::InvalidAccountId {
                 reason: "missing lending: prefix".into(),
-            })?;
+            }
+        })?;
 
         if raw.len() != ADDRESS_HEX_LEN {
             return Err(WireSchemaError::InvalidAccountId {
@@ -32,9 +34,10 @@ impl LendingAccountId {
 
         let mut out = [0u8; 32];
         for (index, chunk) in raw.as_bytes().chunks(2).enumerate() {
-            out[index] = decode_hex_byte(chunk).ok_or_else(|| WireSchemaError::InvalidAccountId {
-                reason: "address payload contains non-hex bytes".into(),
-            })?;
+            out[index] =
+                decode_hex_byte(chunk).ok_or_else(|| WireSchemaError::InvalidAccountId {
+                    reason: "address payload contains non-hex bytes".into(),
+                })?;
         }
         Ok(Address(out))
     }
@@ -172,7 +175,9 @@ where
     D: Deserializer<'de>,
 {
     let value = u16::deserialize(deserializer)?;
-    RiskBps::new(value).map(|risk| risk.0).map_err(de::Error::custom)
+    RiskBps::new(value)
+        .map(|risk| risk.0)
+        .map_err(de::Error::custom)
 }
 
 fn validate_decimal_string(value: &str) -> Result<(), WireSchemaError> {
@@ -241,7 +246,11 @@ mod tests {
         let addr = address(0x2a);
         let wire = LendingAccountId::from_address(addr);
 
-        assert_eq!(wire.to_address().expect("round-trip address decode should succeed"), addr);
+        assert_eq!(
+            wire.to_address()
+                .expect("round-trip address decode should succeed"),
+            addr
+        );
         assert_eq!(wire.0.len(), ACCOUNT_PREFIX.len() + ADDRESS_HEX_LEN);
     }
 
@@ -276,9 +285,12 @@ mod tests {
         );
 
         let json = serde_json::to_string(&payload).expect("serialization should succeed");
-        let round_trip: LendingWirePositionV0 = serde_json::from_str(&json).expect("deserialization should succeed");
+        let round_trip: LendingWirePositionV0 =
+            serde_json::from_str(&json).expect("deserialization should succeed");
 
-        round_trip.validate().expect("round-tripped payload should be valid");
+        round_trip
+            .validate()
+            .expect("round-tripped payload should be valid");
         assert_eq!(round_trip, payload);
     }
 
