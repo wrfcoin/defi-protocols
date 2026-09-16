@@ -1,9 +1,21 @@
 # WRFCoin DeFi Protocols
 
+> **Status (2026-09-16): IN SCOPE for the testnet release.** Owner decision, recorded in
+> [wrfcoin/defi-protocols#68](https://github.com/wrfcoin/defi-protocols/issues/68) (epic
+> [wrfcoin/infra#943](https://github.com/wrfcoin/infra/issues/943)): wire it, don't park it.
+> This repo is **NOT empty** — it holds 12 tested Rust crates (lending, yield-farming, AMM,
+> bonding-curve, liquid-staking, TWAP oracle, parametric insurance, weather derivatives,
+> prediction market, revenue-sharing, auto-compound vaults, plus `defi-common`) and a mirrored
+> Solidity/Hardhat layer. [core4#370](https://github.com/wrfcoin/core4/issues/370) was the
+> original exploration ticket and its "empty repo" framing is stale. **Nothing here is wired to
+> a live surface yet** (zero cross-repo consumers as of the 2026-09-16 Ground Truth audit); the
+> integration path is decided in `docs/adr/0001-integration-path.md`
+> ([#69](https://github.com/wrfcoin/defi-protocols/issues/69)) before any wiring story is cut.
+
 DeFi protocol implementations for the WRFCoin platform. Hybrid Rust + Solidity architecture with
 core logic in Rust crates and EVM-facing interfaces in Solidity.
 
-Related: [issue #370](https://github.com/wrfcoin/core4/issues/370)
+Related: [issue #370](https://github.com/wrfcoin/core4/issues/370) (original exploration ticket, closed — see the dated status note above)
 
 ## Structure
 
