@@ -1,5 +1,11 @@
 # WRFCoin DeFi Protocols
 
+> ## Testnet status: Accepted 2026-09-18 — simulator only, not live
+>
+> The opt-in `defi-node` v0 surface is read/quote-only. It does not hold custody, move balances,
+> or touch chain state. Every response is explicitly labelled `simulated:true`; settlement is
+> blocked on a separately accepted ADR 0002. See [ADR 0001](docs/adr/0001-integration-path.md).
+
 > **Status (2026-09-16): IN SCOPE for the testnet release.** Owner decision, recorded in
 > [wrfcoin/defi-protocols#68](https://github.com/wrfcoin/defi-protocols/issues/68) (epic
 > [wrfcoin/infra#943](https://github.com/wrfcoin/infra/issues/943)): wire it, don't park it.
