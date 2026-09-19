@@ -1,7 +1,6 @@
 # ADR 0001: How defi-protocols reaches users — integration path
 
-- **Status:** Proposed (2026-09-16) — awaiting owner approval. Once approved, the follow-up wiring
-  epic is filed and linked from [#69](https://github.com/wrfcoin/defi-protocols/issues/69).
+- **Status:** Accepted 2026-09-18 — simulator only, not live.
 - **Decision owner:** repo owner. **Drafted by:** the infra#943 build loop.
 - **Supersedes:** nothing. **Constrained by:** core4
   [`ADR-001-issue-370-defi-architecture-split.md`](https://github.com/wrfcoin/core4/blob/main/docs/architecture/ADR-001-issue-370-defi-architecture-split.md)
@@ -56,15 +55,13 @@ new `server/routes/defi-routes.ts` at `/api/defi`, which the frontend already ca
   infra#944 → backend#1117 uses), one backend proxy router, one infra compose entry. Zero changes
   to the 12 crates or their 454 tests; zero frontend change for the first slice; no genesis cut;
   no second chain.
-- **The honest limitation.** WRF balances live on core4. A service cannot move them, so its ledger
-  is **off-chain and custodial**: users deposit/withdraw with signed core4 transactions to a
-  service-controlled address, and the service's pools/positions are its own bookkeeping until a
-  native settlement path exists. That is acceptable for a testnet *if every response says so*
-  (`simulated`/`custodial: true`, the honest-gap convention from backend#1118) and if the first
-  slice is read/quote-only so no funds are at risk before the settlement story is designed.
+- **The honest limitation.** WRF balances live on core4. The accepted v0 service therefore has no
+  ledger or custody at all: it reads synthetic fixtures and computes pure quotes until a native
+  settlement path exists. Every response says `simulated:true`, `custodial:false`, and
+  `settlement:"none"`; no funds are at risk before the settlement story is separately decided.
 - **Benefit.** Fastest path to a real, testable surface; uses the house pattern; every crate's
   tests keep counting; the operational cost is one more container on the N5 (local-only deploy).
-- **Verdict.** **Recommended** for the testnet phase, explicitly labelled off-chain/custodial, with
+- **Verdict.** **Recommended** for the testnet phase, explicitly labelled simulator-only, with
   the settlement design as its own follow-up story.
 
 ### (c) EVM-deployed — deploy the Solidity layer to a real EVM testnet, frontend via wallet-connect
@@ -85,7 +82,16 @@ new `server/routes/defi-routes.ts` at `/api/defi`, which the frontend already ca
 ## Decision
 
 **Adopt (b): defi-protocols ships a standalone Rust HTTP service (`defi-node`) that backend proxies
-at `/api/defi`, labelled off-chain/custodial in every response until a settlement path lands.**
+at `/api/defi`, labelled simulator-only and non-custodial until a settlement path lands.**
+
+### Decision log
+
+- **2026-09-18:** Accepted option (b) by the Wave 0 decision owner in
+  [#72](https://github.com/wrfcoin/defi-protocols/issues/72), constrained to a simulator-only,
+  read/quote surface. The v0 service does not hold custody, move balances, or touch chain state;
+  every response is labelled `simulated:true`, and deployment remains opt-in and off by default.
+  This record authorizes no deployment and no balance-moving route. Settlement remains gated on
+  a separately accepted ADR 0002.
 
 Two carve-outs keep this consistent with ADR-001:
 
@@ -107,7 +113,7 @@ Routes:
 | Route | Backed by | Response contract |
 |---|---|---|
 | `GET /health` | — | standard probe |
-| `GET /api/defi/pools` | `amm::LiquidityPool` seeded from a checked-in TOML fixture | `{ simulated: true, custodial: true, pools: [...] }` |
+| `GET /api/defi/pools` | `amm::LiquidityPool` seeded from a checked-in TOML fixture | `{ simulated: true, custodial: false, settlement: "none", pools: [...] }` |
 | `POST /api/defi/pools/{id}/quote` | `amm::SwapEngine` (pure, no state change) | quote + the same flags |
 | `GET /api/defi/portfolio/{address}` | nothing yet | honest-gap `501 { unavailable: true, reason: "no ledger until the settlement story" }` |
 
@@ -138,9 +144,8 @@ rendering the `simulated` flag is a later frontend story.
 
 - **Positive:** real surface within one sprint; crates and tests reused intact; no genesis-cut
   coupling; one operational pattern shared with storage-providers.
-- **Negative:** custodial/off-chain until Story D and its successor land; must be said in every
-  response and in the README, or it becomes exactly the "armed, not firing" trap this epic exists
-  to remove. One more container to run.
+- **Negative:** simulated/off-chain with no settlement until Story D and its successor land; this
+  must be said in every response and in the README. One more opt-in container to run.
 - **Neutral:** the Solidity layer and smart-contracts' own DeFi contracts remain unreconciled;
   that reconciliation is a prerequisite of (c), not of (b).
 

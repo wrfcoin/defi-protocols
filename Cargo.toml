@@ -13,6 +13,7 @@ members = [
     "crates/prediction-market",
     "crates/revenue-sharing",
     "crates/auto-compound-vaults",
+    "crates/defi-node",
 ]
 
 [workspace.package]
