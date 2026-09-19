@@ -1,0 +1,17 @@
+# SYNTHETIC FIXTURE — not market data
+
+[[pools]]
+id = 1
+asset_a = "WRF"
+asset_b = "USDx"
+reserve_a = "100000000000"
+reserve_b = "250000000000"
+fee_rate_bps = 30
+
+[[pools]]
+id = 2
+asset_a = "WRF"
+asset_b = "CARBON"
+reserve_a = "100000000000"
+reserve_b = "500000000000"
+fee_rate_bps = 50
