@@ -33,7 +33,8 @@ Measured facts this record depends on (defi-protocols `main` = `dcdb390`, core4 
 | Both repos use the same base unit: `WRF_UNITS_PER_COIN = 100_000_000` (1 WRF = 10^8 base units) | defi-protocols `crates/defi-common/src/types.rs`, core4 `shared-protocol/src/common/constants.rs:39` (`u64`) |
 | core4 transfer amounts are `u64` | core4 `shared-protocol/src/blockchain/transaction.rs:203` (`pub amount: u64`) |
 | No crate in this repo has a persistence layer | `crates/*` @ `dcdb390` |
-| No conversion layer between the two widths has existed since #34 was closed | [#34](https://github.com/wrfcoin/defi-protocols/issues/34) |
+| **Width** conversion already exists and is checked: `impl From<u64> for Amount` (lossless widening) and `impl TryFrom<Amount> for u64` (returns `TryFromIntError` above `u64::MAX`), with tests `test_amount_from_u64`, `test_amount_try_into_u64` and `test_amount_try_into_u64_overflow`. These were added in `69ad7af` (the #34 fix). | `crates/defi-common/src/types.rs:98-111`, tests `:567-589` |
+| What does **not** exist is a **settlement integration**. No code converts a DeFi position into a core4 transaction or back. The existing width conversions are **asset-unaware**: they take a bare `Amount` with no `AssetId`. No crate outside `defi-common` calls them. | `git grep` over `crates/` at `dcdb390` |
 
 ## Options
 
@@ -103,13 +104,19 @@ fixed now so that a later option 2 or 3 story cannot redefine them.
 ### `u128 ↔ u64` conversion rule
 
 1. **Units:** both sides are WRF base units (10^8 per WRF). There is no rescaling, in either direction.
-2. **Widening (core4 → DeFi):** `Amount(u128::from(core4_amount_u64))`. This is lossless and cannot fail.
-3. **Narrowing (DeFi → core4):** `u64::try_from(amount.0)`. If `amount.0 > u64::MAX`, the
-   operation is **rejected** with a typed error, and no transaction is built. Saturating,
-   truncating, wrapping and splitting are all forbidden.
-4. **Non-WRF assets:** an `Amount` whose `AssetId` is not native WRF is never converted to a
-   core4 amount. The conversion function takes the asset id and rejects any other asset.
-5. **Test vectors (required by any implementing PR):**
+2. **Widening (core4 → DeFi):** reuse the existing `impl From<u64> for Amount`
+   (`defi-common/src/types.rs:98`). This is lossless and cannot fail.
+3. **Narrowing (DeFi → core4):** reuse the existing checked `impl TryFrom<Amount> for u64`
+   (`types.rs:104-111`). If the value exceeds `u64::MAX`, the operation is **rejected** with the
+   typed error, and no transaction is built. Saturating, truncating, wrapping and splitting are
+   all forbidden, so the checked impl must stay the only narrowing path.
+4. **Non-WRF assets (the missing piece):** the existing impls are width-only and asset-unaware.
+   A settlement boundary must add an **asset-aware** wrapper that takes the `AssetId` along with
+   the `Amount`, rejects anything that is not native WRF, and only then calls the checked width
+   conversion. An `Amount` whose asset is not native WRF is never converted to a core4 amount.
+5. **Test vectors** (required by any implementing PR, on the asset-aware wrapper. The existing
+   width tests at `types.rs:567-589` already cover `u64::MAX` and `u64::MAX + 1` for the width
+   layer):
    - `0 → 0`
    - `u64::MAX` round-trips exactly
    - `u64::MAX as u128 + 1` gives an error
