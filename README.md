@@ -1,21 +1,40 @@
 # WRFCoin DeFi Protocols
 
+Reference Rust libraries and Solidity interfaces for planned WRFCoin DeFi protocols.
+
+**These mirror planned protocol features and are NOT part of the running testnet.** The opt-in simulator is read/quote-only; it has no custody, settlement, or chain writes.
+
 ## Public testnet
 
-Public testnet launch: **2026-10-22**. Testnet tokens have no monetary value.
-Visit [WRFCoin](https://wrfcoin.com), read the [documentation](https://github.com/wrfcoin/docs),
-and ask for help in [testnet-support](https://github.com/wrfcoin/testnet-support).
+Public testnet launch: **2026-10-22**. Testnet tokens have no monetary value, and the network may be reset.
+
+- [WRFCoin website](https://wrfcoin.com)
+- [Public testnet quickstart](https://github.com/wrfcoin/docs/blob/main/testnet/quickstart.md)
+- [Help and bug reports](https://github.com/wrfcoin/testnet-support)
+- [Security reporting](SECURITY.md)
+
+## Today and planned work
+
+| Status | Scope |
+| --- | --- |
+| Available in this repository today | Rust protocol libraries and an opt-in simulator with responses labelled `simulated:true`. |
+| Planned / not available here | Live settlement and custody are not implemented. [ADR 0002](docs/adr/0002-settlement-and-custody.md) records the read/quote-only decision. |
+
+## Build and use
+
+See [CONTRIBUTING.md](CONTRIBUTING.md#build-and-test) for prerequisites and build/test commands. CI results apply only to the named commit and executed checks; they do not prove deployment.
+
+Licensed under [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE), at your option.
 
 > ## Testnet status: simulator only, not live
 >
 > The opt-in `defi-node` v0 surface is read/quote-only. It does not hold custody, move balances,
 > or touch chain state. Every response is explicitly labelled `simulated:true`; settlement is
-> blocked on a separately accepted ADR 0002. See [ADR 0001](docs/adr/0001-integration-path.md).
+> unavailable under the accepted read/quote-only ADR 0002. See [ADR 0001](docs/adr/0001-integration-path.md).
 
 DeFi protocol implementations for the WRFCoin platform. Hybrid Rust + Solidity architecture with
 core logic in Rust crates and EVM-facing interfaces in Solidity.
 
-Related: [issue #370](https://github.com/wrfcoin/core4/issues/370) (original exploration ticket)
 
 ## Structure
 
