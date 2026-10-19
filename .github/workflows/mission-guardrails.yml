@@ -4,6 +4,9 @@ on:
   pull_request:
   push:
 
+permissions:
+  contents: read
+
 jobs:
   mission-guardrails:
     runs-on: ubuntu-latest
