@@ -1,4 +1,5 @@
 [package]
+description = "Automated market maker models for WRFCoin DeFi"
 name = "wrfcoin-amm"
 version.workspace = true
 edition.workspace = true
