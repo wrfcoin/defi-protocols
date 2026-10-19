@@ -1,4 +1,5 @@
 [package]
+description = "Shared types and errors for WRFCoin DeFi protocols"
 name = "wrfcoin-defi-common"
 version.workspace = true
 edition.workspace = true
