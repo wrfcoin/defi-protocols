@@ -6,6 +6,8 @@ Reference Rust libraries and Solidity interfaces for planned WRFCoin DeFi protoc
 
 ## Public testnet
 
+Test status (2026-10-19): `cargo test` passed at `0e3fc1f54ab1` on Linux (462 passed, 0 ignored; default features; local tests, not deployment evidence).
+
 Public testnet launch: **2026-10-22**. Testnet tokens have no monetary value, and the network may be reset.
 
 - [WRFCoin website](https://wrfcoin.com)
