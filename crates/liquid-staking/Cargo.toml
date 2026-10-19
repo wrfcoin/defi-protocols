@@ -1,4 +1,5 @@
 [package]
+description = "Liquid staking accounting models for WRFCoin"
 name = "wrfcoin-liquid-staking"
 version.workspace = true
 edition.workspace = true
